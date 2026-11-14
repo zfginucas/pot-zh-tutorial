@@ -13,4 +13,4 @@ for l in read_lessons():
     if p.returncode:print(p.stdout[-1000:])
 (ROOT/'.work/example-results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8')
 assert all(r['passed'] for r in results), 'One or more examples failed'
-print('All 14 independent POT examples passed.')
+print(f'All {len(results)} independent POT examples passed.')

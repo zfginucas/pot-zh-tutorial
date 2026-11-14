@@ -26,6 +26,7 @@ jobs:
       - run: npm test
       - run: python scripts/validate_examples.py
       - run: npm run build
+      - run: python scripts/validate_exports.py
       - run: npx playwright install --with-deps chromium
       - name: Check desktop and mobile course
         run: |

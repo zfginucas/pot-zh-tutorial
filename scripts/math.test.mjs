@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {assignment,geneScore,genePatterns} from '../assets/gene-lab.js';
 import {exact1D,costMatrix,cost,residual,sinkhorn,entropy,sliced,structureMatch} from '../assets/math.js';
 const a=[.55,.45],b=[.25,.35,.4],x=[.12,.6],y=[.22,.65,.9],M=costMatrix(x,y,2);
 test('quantile coupling conserves marginals and matches hand-solved 2x3 plan',()=>{const P=exact1D(x,y,a,b);assert.ok(residual(P,a,b)<1e-12);assert.ok(Math.abs(P[0][1]-.3)<1e-12);assert.equal(P[0][2],0);assert.ok(Math.abs(cost(P,M)-.122895)<1e-12);});
@@ -10,3 +11,5 @@ test('larger entropy regularization increases entropy in this fixed example',()=
 test('one-dimensional Wasserstein identity and translated points',()=>{const r=sliced([[0,0],[1,0]],[[2,0],[3,0]],[0]);assert.equal(r.value,2);assert.equal(sliced([[0,0],[1,0]],[[2,0],[3,0]],[Math.PI/2]).value<1e-10,true);});
 test('structure matching is invariant to rotation and permutation',()=>{const X=[[-.65,-.3],[-.1,.65],[.65,.2],[.1,-.6]],Y=[2,0,3,1].map(i=>[-X[i][1],X[i][0]]);const r=structureMatch(X,Y);assert.ok(r.value<1e-20);assert.deepEqual(r.p,[1,3,0,2]);});
 test('JavaScript plans agree with 18 independently computed POT reference plans',()=>{const data=JSON.parse(fs.readFileSync(new URL('./pot-reference.json',import.meta.url),'utf8'));for(const f of data.fixtures){const r=sinkhorn(f.a,f.b,f.M,f.epsilon);assert.ok(Math.max(...r.P.flatMap((row,i)=>row.map((v,j)=>Math.abs(v-f.P[i][j]))))<1e-7);assert.ok(Math.abs(cost(exact1D(x,y,f.a,f.b),f.M)-f.emd_cost)<1e-12);}});
+test('tiny assignment solver matches brute force on independent square costs',()=>{const M=[[3,1,4],[2,5,1],[4,2,3]];const brute=Math.min(...[[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]].map(p=>p.reduce((s,j,i)=>s+M[i][j],0)/3));assert.ok(Math.abs(assignment(M).cost-brute)<1e-12);});
+test('synthetic spatial gene scores agree with independently verified POT values',()=>{assert.equal(geneScore(genePatterns.cluster,2).cost,1.5);assert.equal(geneScore(genePatterns.checker,2).cost,.5);for(const values of Object.values(genePatterns))for(const p of [1,2]){assert.equal(values.reduce((s,v)=>s+v,0),8);assert.ok(Math.abs(geneScore(values,p,3).cost-geneScore(values,p,1).cost*3**p)<1e-10);}assert.equal(geneScore(genePatterns.stripe,2).cost,geneScore(genePatterns.cluster,2).cost);});

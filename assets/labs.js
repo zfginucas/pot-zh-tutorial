@@ -1,3 +1,4 @@
+import {mountGeneLab} from './gene-lab.js';
 import {uniform,costMatrix,cost,residual,entropy,exact1D,sinkhorn,sliced,structureMatch} from './math.js';
 const green='#26786b',orange='#d7834d',ink='#29433a';
 const svg=(body,label,h=270)=>`<svg class="chart" viewBox="0 0 640 ${h}" role="img" aria-label="${label}">${body}</svg>`;
@@ -13,8 +14,10 @@ export function transportSVG(P,x,y,a,b){let body=axis();P.forEach((r,i)=>r.forEa
   return svg(body,'一维运输计划：上方为源分布，下方为目标分布，连线粗细代表运输质量，横轴为实际位置');
 }
 export function heroFigure(){const a=[.55,.45],b=[.25,.35,.4],x=[.12,.6],y=[.22,.65,.9],P=exact1D(x,y,a,b);return transportSVG(P,x,y,a,b);}
-export const labNames={transport:'01 · 搬运与耦合',sinkhorn:'02 · 熵与迭代',interpolation:'03 · 分布如何移动',sliced:'04 · 投影与切片',structure:'05 · 形状与结构'};
+export const labNames={transport:'01 · 搬运与耦合',sinkhorn:'02 · 熵与迭代',interpolation:'03 · 分布如何移动',sliced:'04 · 投影与切片',structure:'05 · 形状与结构',gene:'06 · 基因空间分布'};
 export function mountLab(el,type='transport'){
+  if(type==='gene'){mountGeneLab(el);return;}
+
   if(type==='transport'||type==='sinkhorn'){
     const regular=type==='sinkhorn';el.innerHTML=`<h3>${regular?'调节 ε，观察运输计划如何变柔和':'一份运输计划，到底长什么样？'}</h3><div class="lab-description">两个源点、三个目标点；位置在同一条实数轴上。连线粗细表示运输质量。</div><div class="lab-controls"><label>源点 a₁ 质量 <input aria-label="源点一质量" type="range" min="10" max="90" step="5" value="55" data-a><output data-av></output></label><label>成本 <select aria-label="地面成本" data-p><option value="2">平方距离 |x − y|²</option><option value="1">绝对距离 |x − y|</option></select></label>${regular?'<label>正则 ε <input aria-label="正则强度" type="range" min="-2.7" max="0" step="0.1" value="-1.3" data-e><output data-ev></output></label>':''}<button data-reset>重置</button></div><div data-chart></div><div data-metrics></div><div class="matrix-row"><div data-matrix></div><p>矩阵每一行对应一个源点，每一列对应一个目标点。行和应该是 a，列和应该是 b。颜色越深，运输质量越大。</p></div><div class="lab-message" data-message></div>`;
     const draw=()=>{const av=+el.querySelector('[data-a]').value/100,a=[av,1-av],b=[.25,.35,.4],x=[.12,.6],y=[.22,.65,.9],p=+el.querySelector('[data-p]').value,M=costMatrix(x,y,p),eps=regular?10**(+el.querySelector('[data-e]').value):0;

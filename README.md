@@ -1,10 +1,14 @@
 # 看见最优传输
 
-基于 [POT](https://pythonot.github.io/) 的原创中文交互教程：14 章、5 个交互实验、14 份可下载的 Python 脚本与 Notebook。
+基于 [POT](https://pythonot.github.io/) 的原创中文交互教程：17 章、64 张原创图示、6 个交互实验、17 份可下载的 Python 脚本与 Notebook。
 
 在线阅读：**https://zfginucas.github.io/pot-zh-tutorial/**
 
 从质量搬运的直觉，到 Kantorovich、Wasserstein、对偶、Sinkhorn、重心、非平衡、GW、切片与研究复现。公式、代码和图示相互对照，不是官方文档的逐字翻译。
+
+新增 [应用专题](https://zfginucas.github.io/pot-zh-tutorial/#topics)：2025–2026 正式顶会论文解读、空间转录组（PASTE、PASTE2、SpaOTsc、moscot、COMMOT），以及申请号 202310708881.1 的核验记录与空间基因教学模型。尚未取得该专利的原始说明书，不把教学算法冒充专利实现。
+
+各章节在概念对应段落插图；下载合集包含 `figures/`，Markdown 手册和 Notebook 均引用同一组 SVG。完整解压后保持目录结构，即可离线查看。
 
 ## 本地运行
 
