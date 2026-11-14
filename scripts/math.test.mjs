@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {exact1D,costMatrix,cost,residual,sinkhorn,entropy,sliced,structureMatch} from '../assets/math.js';
+const a=[.55,.45],b=[.25,.35,.4],x=[.12,.6],y=[.22,.65,.9],M=costMatrix(x,y,2);
+test('quantile coupling conserves marginals and matches hand-solved 2x3 plan',()=>{const P=exact1D(x,y,a,b);assert.ok(residual(P,a,b)<1e-12);assert.ok(Math.abs(P[0][1]-.3)<1e-12);assert.equal(P[0][2],0);assert.ok(Math.abs(cost(P,M)-.122895)<1e-12);});
+test('sorting is internal: arbitrary support order gives same objective',()=>{const P=exact1D([...x].reverse(),[...y].reverse(),[...a].reverse(),[...b].reverse());assert.ok(Math.abs(cost(P,costMatrix([...x].reverse(),[...y].reverse()))-cost(exact1D(x,y,a,b),M))<1e-12);});
+test('log-Sinkhorn reports convergence honestly across all 952 slider combinations',()=>{for(const p of [1,2])for(let avInt=10;avInt<=90;avInt+=5)for(let eInt=-27;eInt<=0;eInt++){const av=avInt/100,e=10**(eInt/10),aa=[av,1-av],C=costMatrix(x,y,p),r=sinkhorn(aa,b,C,e);assert.ok(r.err<1e-4,JSON.stringify({p,av,e,err:r.err}));assert.equal(r.converged,r.err<1e-9);if(!r.converged)assert.equal(r.iterations,4000);assert.ok(r.P.flat().every(v=>Number.isFinite(v)&&v>=0));assert.ok(cost(r.P,C)>=cost(exact1D(x,y,aa,b),C)-2*r.err);}});
+test('larger entropy regularization increases entropy in this fixed example',()=>{assert.ok(entropy(sinkhorn(a,b,M,1).P)>entropy(sinkhorn(a,b,M,.01).P));});
+test('one-dimensional Wasserstein identity and translated points',()=>{const r=sliced([[0,0],[1,0]],[[2,0],[3,0]],[0]);assert.equal(r.value,2);assert.equal(sliced([[0,0],[1,0]],[[2,0],[3,0]],[Math.PI/2]).value<1e-10,true);});
+test('structure matching is invariant to rotation and permutation',()=>{const X=[[-.65,-.3],[-.1,.65],[.65,.2],[.1,-.6]],Y=[2,0,3,1].map(i=>[-X[i][1],X[i][0]]);const r=structureMatch(X,Y);assert.ok(r.value<1e-20);assert.deepEqual(r.p,[1,3,0,2]);});
+test('JavaScript plans agree with 18 independently computed POT reference plans',()=>{const data=JSON.parse(fs.readFileSync(new URL('./pot-reference.json',import.meta.url),'utf8'));for(const f of data.fixtures){const r=sinkhorn(f.a,f.b,f.M,f.epsilon);assert.ok(Math.max(...r.P.flatMap((row,i)=>row.map((v,j)=>Math.abs(v-f.P[i][j]))))<1e-7);assert.ok(Math.abs(cost(exact1D(x,y,f.a,f.b),f.M)-f.emd_cost)<1e-12);}});

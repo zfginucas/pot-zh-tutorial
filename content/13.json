@@ -1,0 +1,110 @@
+{
+  "id": "13",
+  "slug": "autodiff",
+  "title": "可微 OT 与数值诊断",
+  "subtitle": "想对传输成本求梯度，到底该对什么求导？",
+  "stage": "研究实践",
+  "minutes": 45,
+  "prerequisites": [
+    "熵正则 Sinkhorn 与完整目标函数",
+    "多元微积分与链式法则",
+    "包络定理或隐函数定理的直观版本"
+  ],
+  "goals": [
+    "区分最优值对成本的梯度与最优计划对成本的梯度",
+    "掌握包络定理下正则目标梯度的形式并解释其适用条件",
+    "会用中心有限差分核验梯度并诊断 Sinkhorn 精度",
+    "认识 float64、正则强度、停止阈值与内存对可微计算的影响"
+  ],
+  "sections": [
+    {
+      "title": "两种梯度：最优值与最优解",
+      "paragraphs": [
+        "在可微最优传输中，人们常说「对 OT 求梯度」，但这句话至少有两种含义。第一种是正则化最优值对成本矩阵或输入点的梯度，常用于把 OT 当作损失函数训练模型。第二种是最优计划本身对输入的梯度，常用于需要传输计划的端到端结构，例如可微匹配或生成模型。两者不是同一个对象：最优值是一个标量，计划是一个矩阵。混淆它们会导致形状错误、错误的梯度检查，甚至错误的算法设计。",
+        "对于熵正则 OT，最优值对成本矩阵的梯度有一个非常简洁的结果：它等于最优计划。这来自包络定理。直观地说，最优值在参数变化时，计划也会随之变化，但由于计划在原点处已经使目标关于计划的一阶变分为零，计划变化带来的影响只是二阶小量。因此对参数求全导数时，只需要计算目标对参数的显式偏导，不必再乘上计划的导数。这个结论让 OT 损失可以像普通损失一样反向传播，而不需要显式展开 Sinkhorn 迭代。",
+        "但包络定理有前提：边缘 a、b 固定，正则系数固定，计划在可行域内部满足一阶最优性条件，数值求解足够精确。如果边缘本身依赖于成本参数，或者正则系数也在变化，那么梯度中会出现额外项。若使用非平衡 OT，边缘不是硬约束，计划的可行域和目标结构都不同，也不能不加检查地套用平衡情形的公式。阅读论文或代码时，先确认它求的是哪个量，再确认假设是否成立。"
+      ],
+      "formula": "\\mathcal F_\\varepsilon(M)=\\min_{P\\in U(a,b)}\\left\\{\\langle P,M\\rangle+\\varepsilon\\sum_{i,j}P_{ij}\\log P_{ij}\\right\\}",
+      "caption": "M 是成本矩阵，a、b 是固定的概率边缘，ε>0 也固定。Fε(M) 是完整熵正则目标的最小值。全章代码统一采用 ΣP log P 约定，0log0 按 0 处理。"
+    },
+    {
+      "title": "包络定理给出的梯度",
+      "paragraphs": [
+        "在上述目标中，若 P_star 是唯一最优计划，则最优值对 M 的偏导等于 P_star 的对应元素。这个结论不需要我们对 Sinkhorn 迭代做反向传播，也不需要存储每次迭代的中间量。对于训练来说，这非常有利：前向只需求出计划，反向直接用计划作为梯度。很多 OT 损失的实现正是利用这一点，把 Sinkhorn 当作一个黑箱前向算子，梯度由计划给出。",
+        "要注意符号和正则约定。若目标写成线性成本减去熵，梯度仍然是计划；若写成线性成本加 KL 散度到某个参考测度，只要参考测度不依赖 M，梯度也还是计划。不同实现可能在目标中相差一个与 P 的加总有关的常数，但在固定边缘下加总为常数，不影响最优计划，也不影响对 M 的梯度。真正会改变梯度的是边缘随 M 变化、参考测度随 M 变化、或者对计划施加了额外的非线性变换。",
+        "计划本身对 M 的梯度则复杂得多。它涉及 Sinkhorn 不动点的隐函数求导，或者对迭代过程做反向传播，通常会得到一个四维张量。这个梯度在需要二阶信息或计划级正则时有用，但它不是 P_star，也不能用一次前向计算免费得到。把它们混为一谈是数值诊断中最常见的错误之一。"
+      ],
+      "formula": "\\frac{\\partial \\mathcal{F}_{\\varepsilon}(M)}{\\partial M_{ij}}=P^{\\star}_{ij}",
+      "caption": "F_epsilon 是熵正则 OT 的最优值；M_ij 是成本矩阵的第 (i,j) 个元素；P_star 是对应的最优传输计划；P_star_ij 是计划在同一位置的元素。等式表示：对最优值关于成本元素求偏导，等于最优计划在该位置的元素。它不表示计划对成本的导数等于计划本身；后者是一个更高阶的对象。"
+    },
+    {
+      "title": "用中心有限差分做核验",
+      "paragraphs": [
+        "核验梯度最直接的方法是中心有限差分。对每个成本元素 M_ij，把它增加一个小步长 h，重新求一次 Sinkhorn，得到新的最优值和计划；再把它减少 h，重复一次；用两个最优值之差除以 2h，得到数值梯度。把这个数值梯度与最优计划逐元素比较，如果最大绝对误差在合理范围内，就说明前向求解、目标函数和梯度公式至少在这个小例子上一致。",
+        "步长 h 不能太大也不能太小。太大时，泰勒展开的高阶项不可忽略，数值梯度会偏离真实导数；太小时，两个最优值非常接近，浮点相减会损失有效数字。通常可以从 1e-5 或 1e-6 开始，尝试多个步长，看误差是否先降后升。若误差随步长减小反而变大，说明舍入误差占主导；若误差随步长增大迅速变大，说明截断误差占主导。一个合理的实现应在中间区域给出稳定的小误差。",
+        "代码对 4 乘 5 的成本矩阵逐元素做有限差分，计算完整熵正则目标，并与 Sinkhorn 计划比较。为了减少数值误差，代码使用 method='sinkhorn_log'、很小的停止阈值和足够多的迭代次数。你应看到最大误差远小于 1e-3；如果误差很大，优先检查目标函数是否与求解器使用的正则约定一致，而不是先怀疑包络定理。"
+      ],
+      "formula": "G_{ij}=\\frac{\\mathcal{F}_{\\varepsilon}(M+hE_{ij})-\\mathcal{F}_{\\varepsilon}(M-hE_{ij})}{2h}",
+      "caption": "G_ij 是数值梯度；h 是有限差分步长；E_ij 是只有第 (i,j) 个元素为 1、其余为 0 的矩阵；F_epsilon(M+hE_ij) 表示把成本元素扰动后重新求解 Sinkhorn 得到的最优值。中心差分比单侧差分少一阶截断误差，但仍受步长选择和浮点精度影响。"
+    },
+    {
+      "title": "sinkhorn2 返回什么，不是什么",
+      "paragraphs": [
+        "POT 的 ot.sinkhorn2 返回的是线性成本，也就是计划与成本矩阵逐元素乘积之和，而不是包含熵项的完整正则目标。这个约定很容易被误解为「OT 损失」。若你的论文或模型定义的是完整正则目标，就必须自己加上熵项，或者明确说明你优化的是线性成本。这两种报告方式使用同一张正则最优计划来评价不同标量，但若把它们各自作为关于 P 的优化目标，最优计划通常不同。",
+        "代码会同时打印三样东西：sinkhorn2 的返回值、手动计算的线性成本、手动计算的完整熵正则目标。前两者应一致，第三者通常小于线性成本，因为归一化计划的熵项是负的。这个符号很容易让人困惑：sum P log P 非正；熵越大它越负，固定边缘下的乘积计划 abᵀ 取到最负值；只有两边缘都均匀时，这才是均匀矩阵，集中计划则接近零。加入熵正则是在线性成本上减去一个正数，因此完整目标小于纯线性成本。",
+        "报告与梯度核验必须使用同一个标量。完整正则最优值 F(M) 的梯度为 P*；而线性报告值 L(M)=⟨P*(M),M⟩ 的梯度一般还包含 ⟨∂P*/∂M_ij,M⟩，不能直接等同于 P*。固定边缘并不能消去这项。代码额外对线性报告值做有限差分，展示它与计划的差异，防止把 sinkhorn2 当成完整正则最优值使用。"
+      ],
+      "formula": "\\mathrm{cost}_{\\mathrm{lin}}(P)=\\sum_{i,j}P_{ij}M_{ij},\\qquad \\mathcal{F}_{\\varepsilon}(P)=\\mathrm{cost}_{\\mathrm{lin}}(P)+\\varepsilon\\sum_{i,j}P_{ij}\\log P_{ij}",
+      "caption": "P 是传输计划；M 是成本矩阵；cost_lin 是线性运输成本，也是 POT 的 sinkhorn2 默认返回的量；epsilon 是正则系数；第二项是未减 1 的熵项。对归一化计划，sum P log P <= 0，所以完整目标通常小于线性成本。若使用带 -1 的写法，只会整体平移一个常数 epsilon，不影响最优计划和对 M 的梯度。"
+    },
+    {
+      "title": "数值精度、内存与自动微分边界",
+      "paragraphs": [
+        "Sinkhorn 的数值稳定性取决于成本和正则的相对尺度。若 M 的最大值除以 epsilon 很大，指数核的元素会下溢到零，普通 Sinkhorn 迭代可能产生除零或停滞。sinkhorn_log 在对数域更新，能缓解这个问题，但不是无限稳定；当 epsilon 极小或成本极大时，仍需缩放成本、增大正则或改用更稳健的算法。有限差分在病态问题上也会放大误差，因此梯度检查前应先确认前向边缘残差足够小。",
+        "内存方面，计划本身是 n 乘 m，成本矩阵也是 n 乘 m，均为 float64 时每个元素 8 字节。若对 Sinkhorn 迭代做反向传播，autograd 图可能保存每次迭代的中间计划或对偶变量，内存随迭代次数线性增长。利用包络定理只需保存最终计划，可以显著减少内存，但它只给出最优值梯度，不给出计划级梯度。若任务需要计划级梯度，就必须承担隐函数求导或展开迭代的成本。",
+        "本章不强制安装 PyTorch，也不在必跑代码中导入它。概念上，深度学习框架可以把 Sinkhorn 的迭代写成可微算子，或利用隐函数定理自定义反向传播。不同框架、不同后端对 float32 和 float64 的支持不同；做梯度核验时应使用 float64，并把容差与数据尺度一起报告。不要因为框架能自动求导就假设结果一定正确，有限差分仍然是最便宜的独立检查。"
+      ]
+    }
+  ],
+  "lab": "sinkhorn",
+  "labTask": "固定质量与成本，调节 ε，观察计划熵、线性成本、完整正则目标和边缘误差。该实验展示正则计划；去偏或求导请运行下面的独立 Python 实验。",
+  "code": "import numpy as np\nimport ot\n\nnp.random.seed(6)\nn = 4\nm = 5\nX = np.random.randn(n, 2)\nY = np.random.randn(m, 2) + 0.2\na = np.ones(n) / n\nb = np.ones(m) / m\nM = ot.dist(X, Y, metric='sqeuclidean')\nreg = 0.1\n\ndef solve(cost):\n    return ot.sinkhorn(a, b, cost, reg, method='sinkhorn_log', numItermax=20000, stopThr=1e-12)\n\ndef objective(P, cost):\n    logP = np.zeros_like(P)\n    mask = P > 0\n    logP[mask] = np.log(P[mask])\n    return float(np.sum(P * cost) + reg * np.sum(P * logP))\n\nP = solve(M)\nlinear = float(np.sum(P * M))\nfull = objective(P, M)\nprint('计划形状:', P.shape)\nprint('行和最大误差:', round(float(np.abs(P.sum(axis=1) - a).max()), 12))\nprint('列和最大误差:', round(float(np.abs(P.sum(axis=0) - b).max()), 12))\nprint('线性成本:', round(linear, 8), '完整熵正则目标:', round(full, 8))\nassert P.shape == (n, m)\nassert np.all(P >= 0)\nassert np.allclose(P.sum(axis=1), a, atol=1e-9)\nassert np.allclose(P.sum(axis=0), b, atol=1e-9)\nassert full < linear\n\ns2 = float(ot.sinkhorn2(a, b, M, reg, method='sinkhorn_log', numItermax=20000, stopThr=1e-12))\nprint('sinkhorn2 返回值:', round(s2, 8))\nassert abs(s2 - linear) < 1e-8 * max(1.0, abs(linear))\n\nh = 1e-5\nG = np.zeros_like(M)\nfor i in range(n):\n    for j in range(m):\n        Mp = M.copy()\n        Mm = M.copy()\n        Mp[i, j] += h\n        Mm[i, j] -= h\n        Fp = objective(solve(Mp), Mp)\n        Fm = objective(solve(Mm), Mm)\n        G[i, j] = (Fp - Fm) / (2.0 * h)\n\nerr = float(np.max(np.abs(G - P)))\nprint('数值梯度与计划的最大绝对误差:', round(err, 12))\nprint('数值梯度示例:', np.round(G[:2, :2], 6))\nprint('计划示例:', np.round(P[:2, :2], 6))\nassert np.isfinite(G).all()\nassert err < 1e-3\n\nprint('说明: 这里验证的是最优值对 M 的梯度；计划对 M 的梯度是另一个更大阶的对象。')\nG_linear = np.zeros_like(M)\nfor i in range(n):\n    for j in range(m):\n        delta = np.zeros_like(M); delta[i,j] = h\n        plus, minus = M+delta, M-delta\n        G_linear[i,j] = (np.sum(solve(plus)*plus)-np.sum(solve(minus)*minus))/(2*h)\nprint(\"线性报告值梯度与计划的差异:\", np.max(np.abs(G_linear-P)))\nassert np.max(np.abs(G_linear-P)) > 1e-4\n",
+  "codeNotes": "solve 使用对数域 Sinkhorn，返回满足边缘约束的计划 P。objective 计算完整正则目标：线性成本加上 epsilon 乘 sum P log P；由于 P 的元素小于 1，熵项为负，所以完整目标小于线性成本。ot.sinkhorn2 返回线性成本，与手动计算的 linear 一致。有限差分对每个 M_ij 做加减扰动并重新求解，得到数值梯度 G；包络定理预测 G 应接近 P。最大误差小于 1e-3 说明在这个小规模、良性条件下，求解精度和梯度公式一致。改变 reg 会影响计划与数值条件，误差可能变化，但不应把某一个阈值当成所有问题的标准。",
+  "pitfalls": [
+    "把最优值梯度与计划梯度混为一谈。包络定理只说明 dF/dM = P，并不意味着 dP/dM = P；后者是四维张量。",
+    "以为 sinkhorn2 返回完整正则目标。它返回线性成本；完整目标还要加熵项，报告时必须说明用的是哪个量。",
+    "有限差分步长选得极端。太大有截断误差，太小有舍入误差；应尝试多个步长并观察误差曲线。",
+    "在 float32 下做梯度核验并用过严容差。float32 的有效数字少，小步长差分容易失真；核验应使用 float64。",
+    "对未收敛的 Sinkhorn 结果做梯度检查。前向边缘残差大时，包络定理的数值前提不成立，误差会误导。",
+    "认为所有后端都自动支持计划级梯度。自动微分框架可能只支持最优值，或通过展开迭代实现，内存与精度都不同。"
+  ],
+  "quiz": {
+    "question": "在固定边缘、固定正则系数且 Sinkhorn 充分收敛的熵正则 OT 中，最优值对成本矩阵元素的梯度是什么？",
+    "options": [
+      "恒为零，因为计划已经最优",
+      "等于最优传输计划的对应元素",
+      "等于成本矩阵的对应元素",
+      "等于熵正则系数的倒数"
+    ],
+    "answer": 1,
+    "explanation": "包络定理表明，最优值对参数的显式导数只需看目标对参数的偏导。在 <P,M> 加熵项的目标中，对 M_ij 的偏导就是 P_ij，因此梯度等于最优计划。计划变化带来的项因一阶最优性而消失。它不等于成本元素本身，也不是零或正则系数的函数。"
+  },
+  "exercise": {
+    "question": "写出包络定理在这个 OT 问题中的推导思路，并说明如果正则系数 epsilon 也随 M 变化，梯度会多出什么项。",
+    "answer": "设目标 f(P,M)=<P,M>+epsilon sum P log P，可行域 U(a,b) 不依赖 M。令 P_star(M) 为最优计划，F(M)=f(P_star(M),M)。对 M_ij 求全导数：dF/dM_ij = partial f/partial M_ij + sum_{k,l}(partial f/partial P_kl)(partial P_star_kl/partial M_ij)。因为 P_star 在可行域内部（或沿可行方向）满足一阶最优性，f 对可行方向的一阶变分为零；在固定边缘的耦合集合上，这个变分条件使第二项消失。partial f/partial M_ij=P_ij，故 dF/dM_ij=P_star_ij。如果 epsilon 也依赖 M，则 f 中还含有 epsilon(M) 乘熵项，对 M 的显式偏导会多出 (d epsilon/dM_ij) sum_kl P_kl log P_kl。此外，若边缘或可行域随 M 变化，还需要加入边界项或约束的拉格朗日乘子项。因此包络定理的简洁形式依赖固定边缘、固定正则和充分收敛的前提。"
+  },
+  "references": [
+    {
+      "title": "POT 官方 bregman 模块文档（Sinkhorn 与 sinkhorn2）",
+      "url": "https://pythonot.github.io/gen_modules/ot.bregman.html"
+    },
+    {
+      "title": "POT 用户指南",
+      "url": "https://pythonot.github.io/user_guide.html"
+    },
+    {
+      "title": "Cuturi 2013: Sinkhorn Distances",
+      "url": "https://arxiv.org/abs/1306.0895"
+    }
+  ]
+}

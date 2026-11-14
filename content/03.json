@@ -1,0 +1,105 @@
+{
+  "id": "03",
+  "slug": "kantorovich",
+  "title": "从 Monge 到 Kantorovich",
+  "subtitle": "为什么一个点不能劈成两半，却能同时服务两个目的地？",
+  "stage": "数学基础",
+  "minutes": 24,
+  "prerequisites": [
+    "完成第 01、02 章",
+    "会读矩阵形式的线性约束",
+    "知道映射与积分的朴素含义"
+  ],
+  "goals": [
+    "写出 Monge 映射与推前约束",
+    "说清 Monge 映射何时不存在",
+    "理解 Kantorovich 耦合是对映射的凸松弛",
+    "能手算小规模运输问题并用 emd 与 emd2 验证"
+  ],
+  "sections": [
+    {
+      "title": "Monge 的想法：每个点只去一个地方",
+      "paragraphs": [
+        "最直觉的运输方式是给每个供给点指定一个目的地：位于 \\( x \\) 的货物全部搬到 \\( T(x) \\)，中间不拆分。这里的 \\( T \\) 是一个映射，它把供给空间中的点送到需求空间中的点。为了让需求分布被正确满足，映射必须满足推前约束：对任意区域 \\( B \\)，落在 \\( B \\) 里的需求质量，恰好等于所有被送到 \\( B \\) 的供给质量。",
+        "如果供给和需求都是连续分布，且 \\( T \\) 足够光滑，这个约束可以用雅可比行列式写成密度变换公式。但在离散或带原子的分布中，Monge 的图景会立刻遇到障碍。一个仓库的全部货物必须整体搬到一个城市，不能把 60 吨货同时送到两个城市，即使那样更便宜。",
+        "Monge 问题的目标是把 \\( \\lVert x-T(x)\\rVert^p \\) 按供给质量加权后积分。这里的 \\( p \\) 是成本指数的幂次，\\( p=1 \\) 对应距离，\\( p=2 \\) 对应距离平方。由于 \\( T \\) 必须是一个确定的映射，可行集合通常不是凸的，求解也困难得多。"
+      ]
+    },
+    {
+      "title": "什么时候 Monge 映射不存在",
+      "paragraphs": [
+        "最直接的失败例子是“一个供给点、两个需求点”。假设唯一的供给点有质量 1，两个需求点各需要 0.5。任何映射只能把整个供给点送到其中一个需求点，导致一个需求点收到 1、另一个收到 0，无法满足需求。即使允许随机化，只要坚持“每个供给点只去一个目的地”，也无能为力。",
+        "反过来，多个供给点对一个需求点通常没有问题：不同供给点可以各自把全部质量送到同一个需求点。真正造成困难的是供给点少于需求点、并且需要拆分质量的情形。当支撑点数量和权重结构不匹配时，Monge 映射可能不存在，或者存在但代价很高。",
+        "这个例子说明，把质量看作不可分割的“块”，会限制可行方案的空间。现实中的货物、概率质量、像素权重往往可以拆分，因此更合适的建模是允许一个供给点把质量分给多个需求点。"
+      ]
+    },
+    {
+      "title": "Kantorovich 的松弛：允许拆分",
+      "paragraphs": [
+        "Kantorovich 的做法是放弃“每个点只去一个地方”的硬性要求，转而决定每对供给点与需求点之间运多少质量。这个决定就是一个矩阵 \\( P \\)，非负、行和等于供给、列和等于需求。Monge 映射对应的运输矩阵是每行只有一个非零元素的特殊情形，因此 Kantorovich 的可行集合包含所有 Monge 方案，是一个松弛。",
+        "松弛带来了两个好处。第一，可行集合是凸多面体，线性目标在它上面求最小值是线性规划，数值上成熟可靠。第二，原先不存在的 Monge 方案可以被“拆开”的耦合替代，问题总有可行解（只要总质量相等）。代价是解可能不再是确定映射，而是概率性的传输计划。",
+        "当成本严格凸、分布绝对连续等条件满足时，Kantorovich 最优耦合可以由某个 Monge 映射诱导，这叫“Monge 问题的解存在性”。但在有限离散、带原子或退化成本的情形，最优耦合经常是多对多的，不能简单写成一个函数。"
+      ]
+    },
+    {
+      "title": "有限维线性规划与 2×2 手算",
+      "paragraphs": [
+        "在有限离散情形，未知量是 \\( n m \\) 个非负数，约束是 \\( n+m \\) 个等式（其中一个是冗余的，因为总质量相等）。目标函数是 \\( \\sum_{ij} P_{ij} C_{ij} \\)。这正是线性规划的标准形式。若不考虑特殊结构，可以用单纯形法；运输问题还有更高效的特殊算法。",
+        "两行两列的运输问题只有一个自由参数。设供给和需求都是 0.5、0.5，令左上角元素为 \\( t \\)。行和约束迫使右上角为 \\( 0.5-t \\)，列和约束迫使左下角为 \\( 0.5-t \\)，最后右下角为 \\( t \\)。非负性给出 \\( 0\\le t\\le 0.5 \\)。总成本是 \\( t \\) 的线性函数，因此最小值一定在区间端点取到。",
+        "这个手算过程揭示了线性规划的一个重要现象：可行集合是一维线段，最优解可以在端点，也可能整条边都最优。若成本矩阵的对角线更便宜，最优会取 \\( t=0.5 \\)，让质量尽量走对角线；若非对角线更便宜，最优会取 \\( t=0 \\)。若两种配置成本相同，则整条线段都是最优解。"
+      ],
+      "formula": "P(t)=\\begin{pmatrix}t&0.5-t\\\\0.5-t&t\\end{pmatrix},\\quad 0\\le t\\le0.5",
+      "caption": "在本节等权 2×2 例子中，四个矩阵元素只有一个自由参数。"
+    },
+    {
+      "title": "emd、emd2 与平方距离",
+      "paragraphs": [
+        "POT 的 `ot.emd` 返回最优运输矩阵，`ot.emd2` 返回最优成本。两者面对的是同一个线性规划，只是输出不同。使用 `ot.dist` 时要注意默认度量：它默认是平方欧氏距离。若把平方欧氏距离矩阵传给 `emd2`，返回值就是 \\( W_2^2 \\)，也就是 Wasserstein 距离的平方，而不是 \\( W_2 \\) 本身。",
+        "若想要 \\( W_2 \\)，需要对 `emd2` 的结果开平方；若想要 \\( W_1 \\)，应当显式传入 `metric='euclidean'`，此时 `emd2` 返回的是以欧氏距离为成本的最优值。把成本矩阵整体乘以常数，最优方案不变，成本按同一常数缩放，这也解释了为什么距离的幂次会改变数值的物理意义。",
+        "一个常见的误解是“`emd2` 会自动开平方”。它不会。`emd2` 只做线性成本求和，不理解你心里的 \\( p \\)。因此每次报告 Wasserstein 距离时，必须明确写出成本是距离的几次方、是否已经开根。"
+      ],
+      "formula": "\\inf_{T:\\,T_{\\#}\\alpha=\\beta}\\int_{\\mathbb{R}^d}\\lVert x-T(x)\\rVert^p\\,d\\alpha(x), \\qquad \\min_{P\\in U(a,b)}\\sum_{i=1}^{n}\\sum_{j=1}^{m}P_{ij}\\lVert x_i-y_j\\rVert^p",
+      "caption": "左边是 Monge 问题：\\( T \\) 是确定映射，\\( T_{\\#}\\alpha=\\beta \\) 表示推前约束，即 \\( T \\) 把供给分布 \\( \\alpha \\) 搬成需求分布 \\( \\beta \\)；右边是 Kantorovich 问题：\\( P \\) 是耦合矩阵，\\( U(a,b) \\) 是行和与列和约束组成的可行集合；\\( p \\) 是成本幂次；\\( \\lVert x_i-y_j\\rVert \\) 是两点间的底层距离。"
+    }
+  ],
+  "lab": "transport",
+  "labTask": "拖动源点质量，观察运输矩阵行和与列和，并切换绝对距离和平方距离。这个浏览器实验只求平衡一维 OT；本章扩展模型由下面的 Python 示例验证。",
+  "code": "import numpy as np\nimport ot\n\n# 1. Monge 失败：一个供给点需要拆给两个需求点\na1 = np.array([1.0])\nb1 = np.array([0.5, 0.5])\nX1 = np.array([[0.0]])\nY1 = np.array([[0.0], [1.0]])\nM1 = ot.dist(X1, Y1, metric='euclidean')\nG1 = ot.emd(a1, b1, M1)\nprint('一个供给点对两个需求点的运输矩阵:')\nprint(G1)\nprint('非零元素个数 =', np.count_nonzero(G1 > 1e-12))\nassert np.count_nonzero(G1 > 1e-12) == 2\nassert np.allclose(G1.sum(axis=1), a1)\nassert np.allclose(G1.sum(axis=0), b1)\n\n# 2. 2x2 自由参数与端点最优\na = np.array([0.5, 0.5])\nb = np.array([0.5, 0.5])\nC = np.array([[1.0, 2.0], [2.0, 1.0]])\nts = np.linspace(0.0, 0.5, 6)\ncosts = []\nfor t in ts:\n    P = np.array([[t, 0.5 - t], [0.5 - t, t]])\n    costs.append(np.sum(P * C))\nprint('t 扫描 =', np.round(ts, 3))\nprint('对应成本 =', np.round(costs, 3))\nbest = int(np.argmin(costs))\nprint('扫描得到的最佳 t =', ts[best], '成本 =', costs[best])\nG = ot.emd(a, b, C)\ncost = ot.emd2(a, b, C)\nprint('emd 方案:')\nprint(np.round(G, 6))\nprint('emd2 成本 =', round(float(cost), 6))\nassert np.isclose(ts[best], 0.5)\nassert np.isclose(cost, 1.0)\nassert np.allclose(G, np.array([[0.5, 0.0], [0.0, 0.5]]), atol=1e-10)\n\n# 3. emd2 返回的是线性成本，平方欧氏距离给出 W2 的平方\nX = np.array([[0.0, 0.0], [1.0, 0.0]])\nY = np.array([[0.0, 0.0], [0.0, 1.0]])\naa = np.array([0.5, 0.5])\nbb = np.array([0.5, 0.5])\nM_sq = ot.dist(X, Y, metric='sqeuclidean')\nM_eu = ot.dist(X, Y, metric='euclidean')\ncost_sq = ot.emd2(aa, bb, M_sq)\ncost_eu = ot.emd2(aa, bb, M_eu)\nprint('平方欧氏成本 emd2 =', round(float(cost_sq), 6))\nprint('开平方后 =', round(float(np.sqrt(cost_sq)), 6))\nprint('欧氏成本 emd2 =', round(float(cost_eu), 6))\nassert np.isclose(np.sqrt(cost_sq), 1.0)\nassert cost_eu < np.sqrt(cost_sq)\nassert np.isclose(ot.emd2(aa, bb, 2.0 * M_sq), 2.0 * cost_sq)\n",
+  "codeNotes": "第一段中，G1 的两列都是 0.5，说明唯一的供给点把质量拆给了两个需求点，因此不存在严格意义上的 Monge 映射，但 Kantorovich 耦合存在。第二段中，P 由 t 参数化，成本是 2-2t，t 从 0 到 0.5 时成本线性下降，最优在 t=0.5，得到对角线方案，成本为 1。第三段中，M_sq 的返回值 1 是 W2 的平方，开平方后 W2=1；M_eu 的返回值约 0.7071，是 W1 的值。把成本矩阵乘以 2，emd2 的结果也精确乘以 2，说明它只做线性成本求和。",
+  "pitfalls": [
+    "以为 ot.emd 会自动给出一个 Monge 映射；它给出的是可拆分的耦合矩阵。",
+    "把 ot.dist 的默认平方欧氏距离当成欧氏距离，导致把 W2 的平方误报成 W2。",
+    "在总质量不相等时调用 emd 或 emd2；这会让边缘约束不可行。",
+    "看到多个最优方案就以为求解器出错；线性规划的最优解可能不唯一。",
+    "把成本矩阵转置后仍然沿用原来的行、列语义。"
+  ],
+  "quiz": {
+    "question": "一个供给点质量 1，两个需求点各需 0.5。关于 Monge 映射，下面哪个说法正确？",
+    "options": [
+      "存在唯一的 Monge 映射",
+      "存在两个 Monge 映射",
+      "不存在满足全部需求的 Monge 映射，但存在 Kantorovich 耦合",
+      "既不存在 Monge 映射，也不存在 Kantorovich 耦合"
+    ],
+    "answer": 2,
+    "explanation": "Monge 映射要求整个供给点的质量去同一个目的地，无法同时满足两个各 0.5 的需求。Kantorovich 耦合允许把质量拆成 0.5 和 0.5，因此可行。"
+  },
+  "exercise": {
+    "question": "设 a=(0.7,0.3)，b=(0.4,0.6)，成本矩阵 C=[[0,2],[3,0]]。写出所有可行运输矩阵，求最优方案与最优成本。",
+    "answer": "设 P=[[p,0.7-p],[0.4-p,p-0.1]]。行和与列和自动满足，非负性给出 0.1≤p≤0.4。总成本为 2(0.7-p)+3(0.4-p)=2.6-5p，随 p 增大而减小，因此最优在 p=0.4 取到，成本为 2.6-2=0.6。最优方案为 P=[[0.4,0.3],[0,0.3]]，行和为 (0.7,0.3)，列和为 (0.4,0.6)。若 p=0.1，成本为 2.1，说明可行不等于最优。"
+  },
+  "references": [
+    {
+      "title": "POT 全部 API 索引",
+      "url": "https://pythonot.github.io/all.html"
+    },
+    {
+      "title": "POT 用户指南",
+      "url": "https://pythonot.github.io/user_guide.html"
+    },
+    {
+      "title": "Computational Optimal Transport (Peyré & Cuturi)",
+      "url": "https://arxiv.org/abs/1803.00567"
+    }
+  ]
+}

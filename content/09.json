@@ -1,0 +1,108 @@
+{
+  "id": "09",
+  "slug": "unbalanced",
+  "title": "质量不等：非平衡与部分传输",
+  "subtitle": "两堆土总重量不一样，还能比较它们的形状吗？",
+  "stage": "进阶应用",
+  "minutes": 40,
+  "prerequisites": [
+    "线性规划形式的 Kantorovich 传输",
+    "熵正则与 Sinkhorn 迭代",
+    "KL 散度与直方图权重的基本操作"
+  ],
+  "goals": [
+    "理解平衡 OT 的边缘硬约束为什么在质量不等时失效",
+    "写出非平衡 OT 的目标并解释广义 KL 中每个质量项的作用",
+    "区分非平衡参数 rho 与熵正则参数 epsilon 的不同角色",
+    "掌握部分传输的固定传输质量语义以及 POT 的分数约定"
+  ],
+  "sections": [
+    {
+      "title": "质量不等是常态，不是异常",
+      "paragraphs": [
+        "平衡最优传输要求两端总质量相同，不必都等于 1。若比较的是经验概率分布，样本数不同仍然可以各自归一化后使用平衡 OT；样本数量不同本身不是必须使用非平衡 OT 的理由。若总计数代表细胞数量增长、库存总量或事件强度，归一化会丢掉有意义的总量信息，此时非平衡模型才可能更合适。先确定质量代表概率还是物理数量，再选择是否保留质量差异。",
+        "另一种常见做法是补齐或截断到相同质量，但这同样引入人为假设。非平衡最优传输换一个思路：允许边缘约束被违反，但为违反付出代价。它不要求每个源点的质量全部运走，也不要求每个目标点的质量全部被填满。算法可以只运输一部分质量，把运输成本与边缘偏差放在同一个目标里权衡。这样得到的计划不再是严格的耦合，而是「软耦合」；它的行和与列和可以小于，也可以大于给定的 a 与 b。非平衡模型允许质量损失与增生，没有部分传输那种逐点上界。",
+        "需要强调的是，非平衡 OT 不是一个在所有场景下都优于平衡 OT 的升级版。它多了一个可调参数，也改变了最优计划的性质。如果业务上确实要求全部质量都被运输，例如库存必须全部清空、任务必须全部分配，那么平衡约束就是硬性需求，应该使用满足业务硬约束的平衡 OT，而不是用非平衡 OT 近似后再声称质量守恒。"
+      ],
+      "formula": "\\min_{P\\ge0}\\langle P,M\\rangle+\\varepsilon\\mathrm{KL}(P\\mid a b^\\top)+\\rho\\mathrm{KL}(P\\mathbf1\\mid a)+\\rho\\mathrm{KL}(P^\\top\\mathbf1\\mid b)",
+      "caption": "本章采用与代码 reg_type=\"kl\" 一致的约定：计划正则是相对于参考矩阵 abᵀ 的广义 KL；边缘罚项仍为广义 KL。ε 控制计划正则，ρ 控制偏离给定边缘的代价。它与 εΣP(logP−1) 形式在非平衡情形下通常不等价，因为计划总质量不再固定。"
+    },
+    {
+      "title": "广义 KL：把质量差异也计入代价",
+      "paragraphs": [
+        "概率分布上的常用 KL 写作 Σp log(p/q)。将它延伸到非负测度时，广义 KL 加入 −p+q 的质量修正项，使结果非负且只在两向量相同时为零。若 p_i=0，p_i log(p_i/q_i) 取 0；若 p_i>0 而 q_i=0，该项为正无穷；若两者都为 0，该坐标贡献 0。给零值加平滑可以方便计算，但也改变模型，不能悄悄操作。",
+        "广义 KL 是非负的，并且当且仅当 p 与 q 逐坐标相等时为零。它不对称，也不满足三角不等式，所以不能把它当成距离来报告。它的作用是作为罚项嵌入优化目标，而不是作为一个独立的评价指标。理解这一点很重要：非平衡 OT 的「距离」通常指最小目标值，或者经过特定归一化后的散度，而不是边缘的广义 KL 本身。",
+        "在 ot.unbalanced.sinkhorn_unbalanced 中，reg_type 选择的是计划正则的形式，而不是边缘罚项。显式使用 reg_type=\"kl\" 时，默认参考矩阵是 abᵀ；reg_type=\"entropy\" 对应熵型计划正则。边缘惩罚仍通过 reg_m 设定。两种计划正则在非平衡问题中可能改变最优质量，不能借用平衡情形“只差常数”的说法。报告 reg、reg_m、reg_type 及参考测度，才能复现实验。"
+      ],
+      "formula": "\\mathrm{KL}(p\\mid q)=\\sum_i\\left(p_i\\log\\frac{p_i}{q_i}-p_i+q_i\\right)",
+      "caption": "p、q 是非负向量。当 q_i>0 时该坐标的广义 KL 有限；p_i=0 的对数项取 0。若 p_i>0 而 q_i=0，代价为正无穷。−p_i+q_i 修正总质量差异，保证整体非负；两向量相等时结果为零。"
+    },
+    {
+      "title": "rho 与 epsilon：两种完全不同的旋钮",
+      "paragraphs": [
+        "非平衡 OT 里最容易被混淆的是两个参数。epsilon 是熵正则强度，它让最优计划更平滑、让 Sinkhorn 迭代稳定，但不直接决定质量是否守恒。rho 是边缘惩罚强度，它决定算法多在意行和与列和是否接近 a 与 b。把 epsilon 调大不会自动放松质量守恒；把 rho 调大也不会自动让计划变得更平滑。两者需要在成本矩阵的同一量级下联合调节。",
+        "当两个边缘可同时满足时，ρ 增大会将计划推向同一正则约定下的平衡约束；若 ε 固定，极限仍带正则，不是自动回到未正则化 EMD。若两端总质量不同，就不可能同时消除两边缘偏差，此时极限由罚项之间的折中主导。小 ρ 对边缘的约束较弱，但计划质量还受成本、ε 与参考测度影响，不能无条件断言单调收缩。用参数扫描观察，而不是把某个例子的趋势当成定理。",
+        "一个实用诊断是扫描 rho，并画出传输总质量、行和偏差、目标值随 rho 的变化。若曲线在某段剧烈变化，说明数据中存在「哪些质量值得运输」的竞争；若很平缓，则参数选择相对安全。熵正则 epsilon 也要扫描，但观察的是计划的平滑程度和 Sinkhorn 残差。不要用同一套参数在坐标尺度相差很大的数据集之间直接迁移。"
+      ],
+      "formula": "\\mathrm{KL}(P\\mathbf{1}\\mid a)+\\mathrm{KL}(P^{\\top}\\mathbf{1}\\mid b) \\xrightarrow[\\rho\\to\\infty]{} 0 \\quad\\text{若两边缘可同时满足}",
+      "caption": "P1 是计划的行和，P^T1 是列和；a 与 b 是给定边缘；rho 是边缘惩罚系数。当两边缘总质量相同且问题良定时，增大 rho 会把行和、列和推向 a 与 b，从而接近平衡传输。若总质量本就不等，两个边缘无法同时精确满足，这个极限只能理解为罚项主导，不能当作普通平衡 OT 的直接替代。"
+    },
+    {
+      "title": "部分传输：只运固定份额的质量",
+      "paragraphs": [
+        "部分传输直接规定要运输的绝对质量 m。POT 的 partial_wasserstein 要求 0≤m≤min(sum(a),sum(b))，并使计划总质量精确等于 m；m 不是比例参数。仅当两端总质量都归一化为 1 时，m=0.8 才恰好表示运输 80%。行和不超过 a、列和不超过 b 的上界保证不创造质量，这与非平衡模型的软约束不同。",
+        "在非负成本下，增加传输预算 m 不会降低最优总成本；但具体计划需要联合优化，不能简单逐条贪心选最便宜边，因为行列容量会相互竞争。若业务指定运输比例 η，应先计算绝对预算 m=η·min(sum(a),sum(b))，再传给 POT。总质量相等且 m 取完整总质量时回到平衡 OT；总质量不等时，即使 m 取较小一端总质量，另一端仍可能有未参与匹配的剩余量。",
+        "部分传输与非平衡传输解决的问题不同。部分传输是硬配额，适合「预算只能运这么多」或「只关心最便宜的那部分匹配」；非平衡传输是软惩罚，适合「质量多寡本身有噪声，希望模型自己决定丢弃多少」。把两者混用会导致解释困难：例如用非平衡 OT 算出的计划总质量是 0.73，却把它当作固定 73% 的部分传输结果来报告，这是不严谨的。"
+      ],
+      "formula": "\\min_{P\\ge0}\\langle P,M\\rangle\\quad\\mathrm{s.t.}\\quad P\\mathbf1\\le a,\\quad P^\\top\\mathbf1\\le b,\\quad \\mathbf1^\\top P\\mathbf1=m",
+      "caption": "m 是绝对传输质量，满足 0≤m≤min(Σa,Σb)。未匹配质量不参与当前计划；不意味着目标端的剩余质量实际位于源端或沿某条路径运输。"
+    },
+    {
+      "title": "POT 接口细节与可复现实验",
+      "paragraphs": [
+        "本章代码构造两个一维分布：源分布总质量为 1，目标分布总质量为 0.6。代码先展示平衡 EMD 在此不可直接使用，然后调用 ot.unbalanced.sinkhorn_unbalanced，显式设置 reg_type='kl'，比较 rho 很小时与 rho 很大时的传输总质量。你应该看到 rho 增大时传输质量增加，行和与列和更接近给定边缘；rho 很小时计划主动收缩。接着代码用 ot.partial.partial_wasserstein 设置 m=0.8，验证计划总质量恰为 0.8。部分传输示例另外把 b2 归一化为 1，因此 m=0.8 在这段代码里同时对应 80%。",
+        "这里的所有断言都是健全性检查，不是对参数优劣的断言。例如「大 rho 的传输质量大于小 rho」只在这个小规模例子中用于确认参数方向，不能推广成定理。部分传输的行和、列和应不超过 a 与 b，总质量应等于 m；这些才是接口语义层面的硬检查。若你的 POT 版本对 log 参数返回结构略有不同，应先打印类型再取计划，而不要假设返回一定是元组。",
+        "最后提醒：非平衡 OT 的目标值不能直接与平衡 OT 的目标值比较，因为两者的可行域和目标函数都不同。部分传输的目标值也不能与非平衡目标值直接比较。报告结果时要写清楚使用的是哪种形式、总质量是多少、参数是什么；否则即使数字正确，读者也无法知道它代表了什么。"
+      ]
+    }
+  ],
+  "lab": "transport",
+  "labTask": "拖动源点质量，观察运输矩阵行和与列和，并切换绝对距离和平方距离。这个浏览器实验只求平衡一维 OT；本章扩展模型由下面的 Python 示例验证。",
+  "code": "import numpy as np\nimport ot\n\nnp.random.seed(1)\nn = 40\nx = np.linspace(0.0, 1.0, n)\na = np.ones(n) / n\nraw = 0.7 * np.exp(-0.5 * ((x - 0.30) / 0.10) ** 2) + 0.3 * np.exp(-0.5 * ((x - 0.75) / 0.08) ** 2)\nb = 0.6 * raw / raw.sum()\nassert abs(a.sum() - 1.0) < 1e-12\nassert abs(b.sum() - 0.6) < 1e-12\nM = ot.dist(x.reshape(-1, 1), x.reshape(-1, 1), metric='sqeuclidean')\nprint('源总质量 =', round(float(a.sum()), 6), '目标总质量 =', round(float(b.sum()), 6))\nprint('平衡 EMD 要求总质量相等，因此这里直接使用非平衡与部分传输版本。')\n\ndef gkl(p, q):\n    mask = p > 0\n    val = np.zeros_like(p)\n    val[mask] = p[mask] * np.log(p[mask] / q[mask])\n    return float(np.sum(val - p + q))\n\nprint('gkl(a, a) =', round(gkl(a, a), 12))\nprint('gkl(a, b) =', round(gkl(a, b), 6))\nassert abs(gkl(a, a)) < 1e-12\nassert gkl(a, b) > 0\n\nreg = 0.02\nresults = {}\nfor rho in [0.1, 1.0, 50.0]:\n    P = ot.unbalanced.sinkhorn_unbalanced(a, b, M, reg, rho, reg_type='kl', numItermax=5000, stopThr=1e-10)\n    results[rho] = P\n    row = P.sum(axis=1)\n    col = P.sum(axis=0)\n    print('rho =', rho, '传输总质量 =', round(float(P.sum()), 6), '行和范围 =', round(float(row.min()), 6), round(float(row.max()), 6), '列和最大 =', round(float(col.max()), 6))\n    assert P.shape == (n, n)\n    assert np.all(P >= -1e-12)\n    assert np.isfinite(P).all()\nassert results[50.0].sum() > results[0.1].sum()\n\nb2 = raw / raw.sum()\nPp, logp = ot.partial.partial_wasserstein(a, b2, M, m=0.8, log=True)\nprint('部分传输总质量 =', round(float(Pp.sum()), 6), '绝对预算 m =', 0.8)\nprint('部分计划行和最大值 =', round(float(Pp.sum(axis=1).max()), 6), '列和最大值 =', round(float(Pp.sum(axis=0).max()), 6))\nassert Pp.shape == (n, n)\nassert abs(float(Pp.sum()) - 0.8) < 1e-6\nassert np.all(Pp.sum(axis=1) <= a + 1e-9)\nassert np.all(Pp.sum(axis=0) <= b2 + 1e-9)\nprint('本例两端总质量为 1，m=0.8 恰好对应 80%；剩余质量未参与匹配。')\nP_abs = ot.partial.partial_wasserstein(2*a, 3*b2, M, m=0.8)\nassert abs(P_abs.sum()-0.8)<1e-8\nprint('总质量改为 2 与 3 后，m=0.8 仍运输绝对质量', P_abs.sum())",
+  "codeNotes": "非平衡示例保留 sum(a)=1、sum(b)=0.6，并使用计划 KL 正则与边缘 KL 惩罚。行列和可以超过也可以低于给定边缘；输出总量由整个目标决定。部分传输先在两端总量为 1 时检验预算 0.8，再把总量改为 2 和 3，仍检验计划总量为 0.8，以确认 POT 的 m 是绝对质量。",
+  "pitfalls": [
+    "把非平衡计划的行和当作等于 a，或认为它们只能小于 a。非平衡边缘可以增大或缩小；只有可同时满足边缘等条件下，大 ρ 才趋向平衡约束。",
+    "把 reg_m 与 reg 混为一谈。reg 控制熵平滑，reg_m（即 rho）控制边缘惩罚；只调其中一个无法同时控制平滑度与质量守恒。",
+    "误解部分传输的 m。POT 的 m 是绝对运输质量，不是比例；它不超过 min(sum(a),sum(b))。仅在总质量为 1 时两种数字恰好相同。",
+    "用非平衡 OT 的目标值与平衡 OT 比较，或用广义 KL 当作对称距离。两者的可行域和目标不同；广义 KL 不对称也不满足三角不等式。"
+  ],
+  "quiz": {
+    "question": "在非平衡 OT 中，把边缘惩罚系数 rho 调得非常大，最合理的预期是什么？",
+    "options": [
+      "计划会变成完全均匀的矩阵",
+      "计划总质量必然等于目标分布总质量",
+      "在两边缘总质量相同且问题良定时，计划趋近平衡 OT 的耦合",
+      "熵正则会自动关闭，Sinkhorn 不再需要迭代"
+    ],
+    "answer": 2,
+    "explanation": "rho 惩罚行和与列和偏离 a、b。当两边总质量相同且可同时满足边缘时，增大 rho 会迫使计划接近满足硬边缘，从而趋近平衡 OT。均匀矩阵与 rho 无关；目标总质量不等时两个硬边缘无法同时满足；rho 也不会关闭熵正则。"
+  },
+  "exercise": {
+    "question": "设源分布只有一个点 x=0，质量 a=1；目标分布只有一个点 y=1，质量 b=0.5；成本 M(0,1)=1。使用非平衡 OT，且暂不考虑熵项。若计划质量记为 p，写出目标函数，并讨论 rho=0.1 与 rho=10 时最优 p 的直观差异。",
+    "answer": "计划只有一个位置，p 的可行域为 [0,+∞)，没有预设上界。行和为 p，列和为 p。目标为 p*1 + rho*KL(p|1) + rho*KL(p|0.5)。按广义 KL，KL(p|1)=p log p - p + 1（p=0 时第一项取 0），KL(p|0.5)=p log(p/0.5) - p + 0.5。总目标为 p + rho[p log p - p + 1 + p log(p/0.5) - p + 0.5]。整理后与 p 有关的项是 p + rho[2p log p - p log 0.5 - 2p]。对 p 求导并令其为零：1 + rho[2 log p + 2 - log 0.5 - 2] = 1 + rho[2 log p - log 0.5] = 0，因此 2 log p = log 0.5 - 1/rho，即 p = sqrt(0.5) * exp(-1/(2 rho))。当 rho=0.1 时，p = sqrt(0.5)*exp(-5) 约等于 0.0048，计划几乎不运输；当 rho=10 时，p = sqrt(0.5)*exp(-0.05) 约等于 0.6726；当 rho 趋向无穷时，极限是 sqrt(0.5)≈0.7071，而不是 1。直观上，小 rho 允许丢弃质量以避免成本，大 rho 迫使计划质量接近两端质量的折中；但即使 rho 很大，由于两端总质量不同，p 也不会同时等于 1 和 0.5。这个推导忽略了熵项，加入计划正则后，需要按所选参考测度重新求导，最优质量也会改变。"
+  },
+  "references": [
+    {
+      "title": "POT 官方非平衡 OT 模块文档",
+      "url": "https://pythonot.github.io/gen_modules/ot.unbalanced.html"
+    },
+    {
+      "title": "POT 官方示例总览",
+      "url": "https://pythonot.github.io/auto_examples/index.html"
+    },
+    {
+      "title": "Computational Optimal Transport（Peyré 与 Cuturi）",
+      "url": "https://arxiv.org/abs/1803.00567"
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "id": "08",
+  "slug": "barycenter",
+  "title": "位移插值与 Wasserstein 重心",
+  "subtitle": "把两张分布揉成中间那张，应该怎么揉？",
+  "stage": "进阶应用",
+  "minutes": 35,
+  "prerequisites": [
+    "Wasserstein 距离与一维排序",
+    "直方图、权重与成本矩阵的基本约定",
+    "POT 中 ot.emd 与 ot.bregman 的基本调用"
+  ],
+  "goals": [
+    "区分混合插值与位移插值，理解 Wasserstein 重心在优化什么",
+    "掌握一维 W2 重心由分位数线性插值给出的结论",
+    "会在固定支撑上用熵正则计算重心，并说明它与自由支撑重心的差别",
+    "能够读懂重心实验中的正则强度、弥散与支撑选择"
+  ],
+  "sections": [
+    {
+      "title": "从混合到移动：两种完全不同的中间分布",
+      "paragraphs": [
+        "设源分布只有一个颜色值 0，目标只有一个颜色值 1。概率混合把两端各保留一部分质量：t=0.5 时，0 和 1 各占一半，颜色值的位置没有移动。位移插值则沿最优配对路径移动质量：t=0.5 时，所有质量到达 0.5。把两个尖峰各压低一半，与把一个尖峰移动到中间，是两种不同的“平均”。这个区别也是比较颜色直方图、图像形状与概率分布时需要先回答的建模问题。",
+        "在最优传输里，两个分布之间的 W2 重心不是一个简单的加权平均，而是在所有候选分布中，使得到两个给定分布的 Wasserstein 距离平方加权和最小的那个分布。设两个分布为 \\( \\mu \\) 与 \\( \\nu \\)，权重为 \\( 1-t \\) 与 \\( t \\)，则重心 \\( \\mu_t \\) 满足一个变分问题。它把「中间」定义成运输意义下的折中，而不是概率值坐标上的折中。当两个分布各是一个 Dirac 点时，这个定义给出的中间分布也是一个 Dirac 点，位置严格按 t 线性移动，而混合插值却会变成两个分别带 1−t 与 t 质量的地点，这与直觉中的渐变不符。"
+      ],
+      "formula": "\\mu_t \\in \\arg\\min_{\\rho} \\; (1-t)\\,W_2^2(\\rho,\\mu) + t\\,W_2^2(\\rho,\\nu)",
+      "caption": "μ、ν 是给定概率分布，ρ 是候选重心，t∈[0,1]。权重 1−t 和 t 决定从 μ 向 ν 移动的比例；目标使用 W₂ 的平方。"
+    },
+    {
+      "title": "一维的秘密：分位数线性插值",
+      "paragraphs": [
+        "一维是理解重心的最佳试验场。设分布 \\( \\mu \\) 的分位数函数为 \\( q_\\mu^{-1}(u) \\)，它把分位水平 \\( u \\) 映射到该分布的第 u 分位点。对于平方 2-Wasserstein 距离，一维问题有一个精确结论：重心 \\( \\mu_t \\) 的分位数函数，就是两个分位数函数的线性插值。换句话说，对每一层相同的累计概率 u，把两端的数值点按 t 做线性移动，再把这些分位点重新组装成一个分布。这个方法不需要迭代优化，也不依赖网格离散，是检验其他算法的黄金标准。",
+        "这个结论为什么成立？一维 W2 距离可以写成两个分位数函数差的 L2 积分，而分位数函数是分布的完整坐标表示。在这个坐标下，W2 就是普通的欧氏距离，于是「到两个点的加权平方距离和最小」自然由线性插值给出。需要注意三个条件：两个分布的总质量必须相同；我们比较的是相同分位水平；目标是平方 W2 而不是 W1。若总质量不同，必须先做归一化或改用非平衡传输，否则分位数函数无法一一对齐。",
+        "离散分布的分位数是阶梯函数，即累积分布的广义逆；不能用 np.interp 把支撑之间不存在的质量凭空平滑出来。代码用 searchsorted 在累计质量中定位分位水平。若要得到两个离散分布的精确一维重心，可合并两边累计质量的全部断点，在每段取中点计算两个分位数，再将区间长度作为新点的权重。这样保留了每一段真实概率质量，无须用等权采样去近似分位数积分。"
+      ],
+      "formula": "q_{\\mu_t}^{-1}(u) = (1-t)\\,q_{\\mu}^{-1}(u) + t\\,q_{\\nu}^{-1}(u), \\qquad u\\in[0,1]",
+      "caption": "分位水平 u 在 (0,1) 中。每个 u 处，将两端分位数按 1−t、t 加权，就得到一维 W₂ 中点路径。离散实现用累计质量断点和阶梯型广义逆。"
+    },
+    {
+      "title": "固定支撑上的熵正则重心",
+      "paragraphs": [
+        "在二维、三维或图像颜色空间里，分位数插值的简单结论不再成立，通常需要优化。POT 的 ot.bregman.barycenter 采用固定支撑策略：先选定一组网格点及其成本矩阵，把重心限制成这些固定点上的一列权重，然后最小化到每个输入分布的熵正则传输代价之和。输入A的每一列是一个输入直方图，M是固定支撑上的成本矩阵，reg是熵正则强度，weights是各输入分布的混合权重。返回的b就是重心在这些支撑点上的质量分配。",
+        "从算法角度看，固定支撑熵重心同时优化多张运输计划：各计划的一侧边缘是给定输入，另一侧必须共享同一个未知重心。Bregman 投影算法交替满足输入边缘约束和共享边缘约束，后一阶段涉及候选边缘的加权几何平均。这里不是先把每张计划完整求解到同一个已知重心，再对列和取平均——那样所有列和已经相同，更新会原地不动。POT 封装了耦合缩放过程，实际实验仍要检查质量、迭代收敛和正则偏差。",
+        "如果 reg 相对于成本矩阵过大，重心会趋向均匀或过度模糊。原因是熵项鼓励把质量铺开，而传输项还来不及把它拉回两端。实际使用时应先看成本矩阵的量级：若坐标缩放到单位区间，平方欧氏成本通常在 0 到 1 之间，reg 取 0.001 到 0.05 常是合理起点；若坐标范围是几十或几百，reg 必须同比放大，否则数值上等价于几乎无正则。总质量、权重和成本单位三者必须一致，否则得到的重心虽然能算出来，却没有可解释的物理含义。"
+      ],
+      "formula": "b^{\\star} = \\arg\\min_{b\\in\\Delta_n} \\; \\sum_{k=1}^{K} w_k\\, \\mathrm{OT}_{\\varepsilon}(a_k,b),\\qquad \\mathrm{OT}_{\\varepsilon}(a,b)=\\min_{P\\in U(a,b)}\\langle P,M\\rangle+\\varepsilon\\sum_{ij}P_{ij}\\log P_{ij}",
+      "caption": "b 是固定网格上的未知重心权重，a_k 为第 k 个输入分布，w_k 是非负且和为 1 的输入权重。这里采用计划熵正则；重心边缘 b 本身会变化，因此不能随意替换为含 b 的 KL 参考测度并忽略差项。"
+    },
+    {
+      "title": "自由支撑：让重心自己选择位置",
+      "paragraphs": [
+        "固定支撑重心只优化固定坐标上的权重；自由支撑方法则允许重心的坐标移动。具体算法还要区分是否优化权重：POT 的 free_support_barycenter 通常接收预先给定的重心权重，并优化支撑位置，并非自动同时求位置和质量。一般模型可以联合优化二者，但非凸性和计算难度都会增加。实践中常在给定支撑上求运输计划，再按计划更新重心坐标，因此需要报告初始化与停止条件。",
+        "一个重要直觉是：自由支撑的 W2 重心在欧氏空间中往往比熵正则固定网格结果更「尖」、更集中。以两个 Dirac 点为例，自由支撑重心仍然是一个 Dirac 点，位置是两端点的加权平均；而固定网格加熵正则会把这个点抹成一小片。两者没有谁绝对更好，取决于你的目标。如果下游任务需要可微、稳定、快速的批量计算，固定支撑加 Sinkhorn 往往更合适；如果任务要求重心本身具有稀疏支撑或精确几何，必须考虑自由支撑或后处理。",
+        "判断实验结果时，不要只看重心的总质量是否为一，还要检查它的支撑位置、分散程度以及到两端分布的 Wasserstein 距离。一个常见的错误是把重心画出来后觉得「看起来在中间」，却没有验证它是否真的最小化了目标。对于固定支撑重心，至少应报告 reg、M 的尺度、权重和迭代阈值；否则结果不可复现，也无法判断模糊是数据本身还是正则造成的。"
+      ],
+      "formula": "\\min_{\\substack{b\\in\\Delta_n\\\\ y_1,\\ldots,y_n\\in\\mathbb{R}^d}} \\; \\sum_{k=1}^{K} w_k\\, W_2^2\\!\\left(\\sum_{i=1}^{n}b_i\\delta_{y_i},\\,a_k\\right)",
+      "caption": "一般自由支撑模型可同时优化位置 y 与权重 b，通常非凸。POT 的 free_support_barycenter 是其中固定重心权重、更新位置的一种实现，不能把一般模型和某个具体 API 混为一谈。"
+    },
+    {
+      "title": "怎样读代码实验与避免误判",
+      "paragraphs": [
+        "本章代码先构造两个一维分布：一个是均匀分布，另一个是双峰分布。然后分别计算分位数线性插值和固定网格上的熵正则重心。你应该看到分位数中点的质量位置大致落在两个输入的对应分位之间；熵正则重心在 reg 较小时靠近这条分位数曲线，在 reg 变大时变得更平滑、更分散。代码打印的总质量应为一，重心向量应非负；这些都是最基本的健全性检查。",
+        "代码还比较了熵正则重心与算术混合到分位数中点的 W2 距离。这个比较不是定理，只是诊断：若熵正则重心明显比算术混合更接近一维精确重心，说明正则没有压过几何；若相反，应先缩小 reg 或细化网格，而不是直接宣称「重心效果不好」。一维分位数计算要求两个直方图总质量一致，代码中已经归一化；二维固定支撑重心则要求成本矩阵与支撑点顺序严格对应，错位是实际项目中最常见的静默错误。",
+        "最后要记住边界：本章展示的是 Wasserstein 重心，不是任意散度下的重心，也不保证下游分类或生成质量。重心是描述性对象，是否适合你的任务要靠独立验证。对于高维图像颜色，直接用逐像素平方欧氏成本可能忽略空间结构；那是另一个建模选择，不能由 OT 公式自动解决。"
+      ]
+    }
+  ],
+  "lab": "interpolation",
+  "labTask": "拖动时间 t，对比固定位置改变权重的混合与移动位置的位移插值。预测 t=0.5 时两张图的区别，再播放验证。",
+  "code": "import numpy as np\nimport ot\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\n\nnp.random.seed(0)\nn = 60\nx = np.linspace(0.0, 1.0, n)\na = np.ones(n) / n\nb = 0.75 * np.exp(-0.5 * ((x - 0.75) / 0.08) ** 2) + 0.25 * np.exp(-0.5 * ((x - 0.20) / 0.05) ** 2)\nb = b / b.sum()\nassert abs(a.sum() - 1.0) < 1e-12\nassert abs(b.sum() - 1.0) < 1e-12\nassert np.all(a > 0) and np.all(b > 0)\n\ndef quantile_on_grid(x, w, u):\n    cdf = np.cumsum(w)\n    cdf = cdf / cdf[-1]\n    return x[np.minimum(np.searchsorted(cdf, u, side='left'), len(x)-1)]\n\nbreaks = np.unique(np.r_[0.0, np.cumsum(a)[:-1], np.cumsum(b)[:-1], 1.0])\nu = 0.5 * (breaks[:-1] + breaks[1:])\nqw = np.diff(breaks)\nqa = quantile_on_grid(x, a, u)\nqb = quantile_on_grid(x, b, u)\nprint('a 的分位数端点:', round(float(qa[0]), 4), round(float(qa[-1]), 4))\nprint('b 的分位数端点:', round(float(qb[0]), 4), round(float(qb[-1]), 4))\nfor t in [0.0, 0.25, 0.5, 0.75, 1.0]:\n    qt = (1.0 - t) * qa + t * qb\n    print('t =', t, '分位数均值 =', round(float(np.average(qt, weights=qw)), 4), '范围 =', round(float(qt.min()), 4), round(float(qt.max()), 4))\nassert np.allclose(qa, quantile_on_grid(x, a, u))\nassert np.all(qb >= 0)\n\nM = ot.dist(x.reshape(-1, 1), x.reshape(-1, 1), metric='sqeuclidean')\nreg = 0.01\nA = np.column_stack([a, b])\nw = np.array([0.5, 0.5])\nbc = ot.bregman.barycenter(A, M, reg, weights=w, numItermax=5000, stopThr=1e-10)\nprint('重心形状:', bc.shape, '总质量:', round(float(bc.sum()), 8), '非负:', bool(np.all(bc >= 0)))\nassert bc.shape == (n,)\nassert abs(bc.sum() - 1.0) < 1e-6\nassert np.all(bc >= -1e-12)\n\nqt_half = 0.5 * (qa + qb)\nbc_norm = bc / bc.sum()\nmixture = 0.5 * (a + b)\nmixture = mixture / mixture.sum()\nMq = ot.dist(x.reshape(-1, 1), qt_half.reshape(-1, 1), metric='sqeuclidean')\ncost_to_quantile = np.sqrt(ot.emd2(bc_norm, qw, Mq))\ncost_mixture_to_quantile = np.sqrt(ot.emd2(mixture, qw, Mq))\nprint('熵重心到分位数中点的 W2 距离:', round(float(cost_to_quantile), 5))\nprint('算术混合到分位数中点的 W2 距离:', round(float(cost_mixture_to_quantile), 5))\nassert np.isfinite(cost_to_quantile) and cost_to_quantile >= 0\n\nfig, ax = plt.subplots(figsize=(6, 3))\nax.plot(x, a, label='a')\nax.plot(x, b, label='b')\nax.plot(x, bc, label='entropic barycenter')\nax.plot(qt_half, np.ones_like(qt_half) * -0.02, '|', label='quantile midpoint samples')\nax.legend()\nprint('图像对象已创建:', fig is not None)\nfig.savefig('08-barycenter.png', dpi=170, bbox_inches='tight')\nprint('结果图已保存：08-barycenter.png')\n",
+  "codeNotes": "代码先合并两个离散累积分布的断点，逐段使用 searchsorted 求阶梯型广义逆；qa、qb 是每段的精确分位位置，qw 是相应区间长度。qt_half 与 qw 因而描述未正则化的一维 W₂ 中点分布，而不是连续插值出的伪分位数。固定支撑熵重心 bc 的每一项是网格上的质量，A 每列对应一个输入直方图。与精确中点的两个比较距离均由 emd2 的平方成本开根得到。正则与固定网格都会带来偏差，两者应分别诊断。脚本会在当前目录保存 08-barycenter.png，可直接打开查看。",
+  "pitfalls": [
+    "把 (a+b)/2 当作 Wasserstein 重心。它只是概率值的混合，不是位移插值；一维时应比较分位数而不是比较同一坐标的质量。",
+    "把 ot.bregman.barycenter 的 A 按行传入。该函数约定每列是一个直方图；转置后算法仍可能运行，但结果对应错误的支撑与权重。",
+    "坐标范围很大却沿用很小的 reg。熵正则的强度要和成本矩阵同量级看；成本放大 100 倍而 reg 不变，等价于几乎关闭正则，数值上容易出现下溢或边界解。",
+    "忘记检查总质量和非负性。重心向量偶尔会带极小负值，这是浮点误差；若负值明显或总质量偏离一，应先检查输入权重和迭代设置。"
+  ],
+  "quiz": {
+    "question": "在一维平方 Wasserstein 情形下，两个分布按权重 0.5 的重心，其分位数函数是什么？",
+    "options": [
+      "两个分位数函数逐点相乘后再开根",
+      "两个分位数函数的算术平均",
+      "两个概率密度函数的算术平均",
+      "两个分位数函数逐点取最小值"
+    ],
+    "answer": 1,
+    "explanation": "一维 W2 把分布嵌入到分位数函数的 L2 空间，W2 距离变成 L2 距离，因此到两个分位数函数的加权平方距离和最小的对象就是它们的加权算术平均。概率密度平均对应混合插值，不是位移重心；取最小值或乘积都没有这个最优性。"
+  },
+  "exercise": {
+    "question": "设两个分布分别是位于 0 和 1 的 Dirac 点，各带单位质量，权重 t=0.5。求自由支撑 W2 重心的支撑位置；再说明若把支撑固定为网格 {0,0.5,1} 并加很小的熵正则，结果会有什么不同。",
+    "answer": "自由支撑时，候选重心取单个 Dirac 点位于 y，则 W2^2(δ_y,δ_0)=y^2，W2^2(δ_y,δ_1)=(1-y)^2。目标为 0.5y^2+0.5(1-y)^2，对 y 求导得 2y-1=0，故 y=0.5，最优值是 0.25。也可以验证两点分布 0.5δ_0+0.5δ_1 的目标为 0.5，明显更大。固定支撑为 {0,0.5,1} 时，若无正则且允许质量，重心仍可把全部质量放在 0.5，得到同样的几何点；加入熵正则会鼓励质量分散，可能同时给 0、0.5、1 一些正质量，且由于 0.5 位于中间，传输代价最低，质量会集中在 0.5 附近。随着 reg 增大，质量向三点的均匀分布靠拢。这个例子说明：固定支撑本身不等于失去精确重心，但熵正则会把 Dirac 抹开；自由支撑与固定支撑的差别主要在支撑是否由优化决定。"
+  },
+  "references": [
+    {
+      "title": "POT 官方 bregman 模块文档（含 barycenter）",
+      "url": "https://pythonot.github.io/gen_modules/ot.bregman.html"
+    },
+    {
+      "title": "POT 官方示例总览（含 Wasserstein barycenter 示例）",
+      "url": "https://pythonot.github.io/auto_examples/index.html"
+    },
+    {
+      "title": "Computational Optimal Transport（Peyré 与 Cuturi）",
+      "url": "https://arxiv.org/abs/1803.00567"
+    }
+  ],
+  "plot": {
+    "src": "assets/plots/08-barycenter.png",
+    "caption": "同章 Python 的真实输出：源直方图、目标直方图、固定网格熵重心，以及精确一维分位数中点的位置。底部短线只表示位置，不表示密度高度。"
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "id": "06",
+  "slug": "sinkhorn",
+  "title": "熵正则与 Sinkhorn",
+  "subtitle": "把硬约束的线性规划，变成可以反复乘除的矩阵迭代",
+  "stage": "核心算法",
+  "minutes": 30,
+  "prerequisites": [
+    "完成第 03、05 章",
+    "知道矩阵乘法与逐元素相乘",
+    "了解 exp 与 log 的基本性质"
+  ],
+  "goals": [
+    "写出熵正则化目标并解释熵项的符号",
+    "从拉格朗日条件导出 K 矩阵与交替更新",
+    "理解 epsilon 必须与成本同尺度",
+    "能用 log 域计算、检查边缘残差并解释 sinkhorn2 的返回值"
+  ],
+  "sections": [
+    {
+      "title": "为什么要正则化：非唯一性与速度",
+      "paragraphs": [
+        "线性规划的最优解常常落在可行多面体的顶点上，因此很多元素恰好为零，方案稀疏；最优解还可能不唯一。对于大规模问题，网络单纯形等精确算法虽然可靠，但每次求解的成本不低，而且解对数据扰动可能很敏感。熵正则化的想法是：在原始成本之外再加一个鼓励“分散”的项，让最优方案变成唯一、光滑、可以用简单迭代逼近的对象。",
+        "正则化之后，问题不再是严格的线性规划，而是一个严格凸问题。严格凸性保证最优解唯一，也意味着解对输入连续依赖。代价是我们不再精确求解原始运输问题，而是求一个近似；但当正则参数足够小时，正则化解会逼近原解。这个“用可控偏差换计算便利”的取舍，是 Sinkhorn 方法的核心。",
+        "需要注意的是，正则化不是免费午餐。正则参数会改变方案的稀疏程度和数值，过大时会把质量抹得很散，过小时数值又会变得困难。理解参数、尺度和数值稳定性，比记住更新公式更重要。"
+      ]
+    },
+    {
+      "title": "熵项与正则化目标",
+      "paragraphs": [
+        "离散耦合 \\( P \\) 的熵通常写成 \\( -\\sum_{ij}P_{ij}\\log P_{ij} \\)。熵越大，质量分布越分散；熵越小，质量越集中。为了让目标鼓励分散，我们在成本上减去熵，等价于加上 \\( \\varepsilon\\sum_{ij}P_{ij}\\log P_{ij} \\)，其中 \\( \\varepsilon>0 \\) 是正则强度。这个写法里 \\( P\\log P \\) 对小于 1 的元素是负的，因此它确实在“奖励”把质量摊开。",
+        "不同教材会在熵项里加上或减去常数，例如使用 \\( \\sum P(\\log P-1) \\)。由于可行方案的总质量固定为 1，这些写法只相差一个与 \\( P \\) 无关的常数，最优耦合完全相同。重要的是在比较目标值时使用同一约定，不要一会儿加常数、一会儿不加。",
+        "正则化目标仍然是 \\( P \\) 的严格凸函数，约束是线性的，因此存在唯一最优解。它的最优性条件可以用对偶变量写出，而由此得到的结构恰好允许我们把矩阵分解成行缩放、固定核、列缩放三部分的乘积。这就是 Sinkhorn 迭代的入口。"
+      ]
+    },
+    {
+      "title": "K 矩阵与交替缩放",
+      "paragraphs": [
+        "写出带对偶变量的拉格朗日条件，对每个 \\( P_{ij} \\) 求偏导并令其为零，可以得到 \\( P_{ij} \\) 正比于 \\( \\exp(-C_{ij}/\\varepsilon) \\) 再乘上只依赖行和只依赖列的两个因子。把所有 \\( \\exp(-C_{ij}/\\varepsilon) \\) 收集成矩阵 \\( K \\)，最优耦合就可以写成 \\( P=\\mathrm{diag}(u)K\\mathrm{diag}(v) \\)。这里的 \\( u \\) 和 \\( v \\) 是正的缩放向量。",
+        "把 \\( P \\) 代入行和约束，得到 \\( u_i(Kv)_i=a_i \\)，于是 \\( u_i=a_i/(Kv)_i \\)。代入列和约束，得到 \\( v_j=b_j/(K^{\\top}u)_j \\)。这两条公式互相依赖，但可以交替执行：固定 \\( v \\) 更新 \\( u \\)，再固定 \\( u \\) 更新 \\( v \\)，反复迭代。每次更新都精确满足一组边缘约束，交替进行就把两组约束同时推向满足。",
+        "在实际实现中，通常会先初始化 \\( v \\) 为全 1，然后重复“更新 u、更新 v”直到行和与列和的残差小于阈值。因为每次更新都是逐元素除法，单次迭代的成本主要是两次矩阵向量乘法，规模大时可以用 GPU 加速。"
+      ],
+      "formula": "K_{ij}=e^{-C_{ij}/\\varepsilon},\\quad P=\\mathrm{diag}(u)K\\mathrm{diag}(v),\\quad u\\leftarrow a/(Kv),\\quad v\\leftarrow b/(K^\\top u)",
+      "caption": "除法逐元素进行。本节 u、v 是正缩放向量，与上一章的可取负势函数不同；二者通过指数关系联系。"
+    },
+    {
+      "title": "epsilon 的尺度与数值稳定",
+      "paragraphs": [
+        "正则参数 \\( \\varepsilon \\) 与成本 \\( C \\) 具有相同的量纲。若成本整体放大 \\( \\lambda \\) 倍，而 \\( \\varepsilon \\) 保持不变，那么 \\( C/\\varepsilon \\) 放大 \\( \\lambda \\) 倍，核矩阵会变得更尖锐，解会更接近原始线性规划，但数值上也更容易下溢。正确的尺度比较是看 \\( \\varepsilon \\) 相对于成本的数量级，而不是看它的绝对大小。",
+        "当 \\( \\varepsilon \\) 很小时，\\( \\exp(-C_{ij}/\\varepsilon) \\) 对较大的成本会变成 0，标准 Sinkhorn 迭代中的除法可能遇到 0/0 或溢出。解决方案之一是在对数域计算：保存 \\( \\log u \\) 和 \\( \\log v \\)，用 log-sum-exp 计算 \\( Kv \\) 的对数，再做减法。POT 的 `method='sinkhorn_log'` 就是这种稳定实现。",
+        "实用规则是同时查看成本的典型量级、分布形状与求解残差。仅知道最大成本为 10，并不能断定 epsilon=1 是否过度平滑。可以在固定成本下对正则作对数尺度扫描，比较线性成本、计划熵和收敛情况；必要时同时缩放成本与 epsilon。调小 epsilon 可以减小正则偏差，却往往增加数值求解难度，没有对所有数据都合适的固定值。"
+      ]
+    },
+    {
+      "title": "log 域、残差与 sinkhorn2",
+      "paragraphs": [
+        "判断 Sinkhorn 是否收敛，最直接的指标是边缘残差：行和与 \\( a \\) 的最大偏差、列和与 \\( b \\) 的最大偏差。很多实现还会记录对偶残差或最优性条件的变化。残差小说明当前 \\( P \\) 几乎满足两组边缘约束，但不等于原始线性规划的最优性；它只是正则化问题收敛的迹象。",
+        "POT 的 `ot.sinkhorn` 返回耦合矩阵；`ot.sinkhorn2` 返回的是线性成本 \\( \\langle P,C\\rangle \\)，不包含熵项。因此若你想报告完整的正则化目标，需要自己加上 \\( \\varepsilon\\sum P\\log P \\)。把 `sinkhorn2` 的返回值直接当作完整目标，是本章最常见的错误之一。",
+        "还有一个容易忽略的点：sinkhorn2 也不自动开平方。即便输入平方欧氏成本，把它的返回值开根，得到的也只是正则计划的均方运输距离，通常不是精确 W₂。只有未正则化的最优成本在满足地面度量等条件时，开 p 次根才得到 W_p；正则化计划与原问题最优计划必须区分。"
+      ],
+      "formula": "\\min_{P\\in U(a,b)}\\left\\{\\langle P,C\\rangle+\\varepsilon\\sum_{i,j}P_{ij}\\log P_{ij}\\right\\}, \\qquad K_{ij}=\\exp\\!\\left(-\\frac{C_{ij}}{\\varepsilon}\\right), \\qquad u_i=\\frac{a_i}{(Kv)_i},\\quad v_j=\\frac{b_j}{(K^{\\top}u)_j}",
+      "caption": "\\( P \\) 是耦合矩阵；\\( C \\) 是成本矩阵；\\( \\varepsilon>0 \\) 是正则强度，与成本同量纲；\\( \\langle P,C\\rangle=\\sum_{ij}P_{ij}C_{ij} \\) 是线性运输成本；\\( K \\) 是 Gibbs 核；\\( u_i,v_j \\) 是行、列缩放因子；\\( (Kv)_i \\) 是 \\( K \\) 乘 \\( v \\) 的第 \\( i \\) 个分量。"
+    }
+  ],
+  "lab": "sinkhorn",
+  "labTask": "固定质量与成本，调节 ε，观察计划熵、线性成本、完整正则目标和边缘误差。该实验展示正则计划；去偏或求导请运行下面的独立 Python 实验。",
+  "code": "import numpy as np\nimport ot\n\nX = np.array([[0.0], [1.0], [2.0], [3.0]])\nY = np.array([[0.0], [1.0], [2.0], [3.0]])\na = np.array([0.4, 0.3, 0.2, 0.1])\nb = np.array([0.1, 0.2, 0.3, 0.4])\nassert np.isclose(a.sum(), b.sum())\n\nC = ot.dist(X, Y, metric='euclidean')\nreg = 0.1\n\nG_emd = ot.emd(a, b, C)\ncost_emd = float(np.sum(G_emd * C))\n\nG, log = ot.sinkhorn(a, b, C, reg, method='sinkhorn_log', numItermax=5000, stopThr=1e-10, log=True)\nlinear_cost = float(np.sum(G * C))\nrow_err = float(np.max(np.abs(G.sum(axis=1) - a)))\ncol_err = float(np.max(np.abs(G.sum(axis=0) - b)))\nmask = G > 0\nentropy_term = float(np.sum(G[mask] * np.log(G[mask])))\nF_full = linear_cost + reg * entropy_term\n\nprint('EMD 线性成本 =', round(cost_emd, 8))\nprint('Sinkhorn 线性成本 =', round(linear_cost, 8))\nprint('行和最大残差 =', row_err)\nprint('列和最大残差 =', col_err)\nprint('熵项 sum(P log P) =', round(entropy_term, 8))\nprint('完整正则目标 F =', round(F_full, 8))\nprint('耦合矩阵 G:')\nprint(np.round(G, 6))\nassert row_err < 1e-7\nassert col_err < 1e-7\nassert np.isclose(G.sum(), 1.0, atol=1e-10)\n\ns2 = ot.sinkhorn2(a, b, C, reg, method='sinkhorn_log', numItermax=5000, stopThr=1e-10)\nprint('sinkhorn2 返回 =', round(float(s2), 8))\nprint('线性成本与 sinkhorn2 的差 =', float(s2) - linear_cost)\nassert np.isclose(float(s2), linear_cost, atol=1e-8)\nassert not np.isclose(float(s2), F_full, atol=1e-8)\n\nerrs = log.get('err', [])\nif len(errs) > 0:\n    print('最后记录的误差 =', round(float(errs[-1]), 12))\nelse:\n    print('当前 POT 版本未在 log 中提供 err 列表')\n\nscale = 1000.0\nG_scaled = ot.sinkhorn(a, b, scale * C, scale * reg, method='sinkhorn_log', numItermax=5000, stopThr=1e-10)\nprint('成本与 reg 同乘 1000 后耦合最大差异 =', float(np.max(np.abs(G - G_scaled))))\nassert np.allclose(G, G_scaled, atol=1e-7)\n\nprint('不同 epsilon 下的线性成本与行和残差:')\nfor eps in [0.1, 0.5, 1.0]:\n    Ge = ot.sinkhorn(a, b, C, eps, method='sinkhorn_log', numItermax=5000, stopThr=1e-10)\n    lin = float(np.sum(Ge * C))\n    re = float(np.max(np.abs(Ge.sum(axis=1) - a)))\n    print('  eps =', eps, '线性成本 =', round(lin, 8), '行和残差 =', round(re, 10))\n    assert np.isfinite(Ge).all()\n    assert re < 1e-7\n",
+  "codeNotes": "G 是 Sinkhorn 返回的耦合矩阵，线性成本约等于 emd 的成本但不会完全相同，因为熵正则化改变了目标。row_err 和 col_err 是两组边缘约束的最大偏差，应在阈值以下。entropy_term 是 sum(P log P)，因为 P 的元素多小于 1，它是负数；F_full 才是完整正则目标。sinkhorn2 返回的值与 linear_cost 相同，说明它不含熵项；若把它误当 F_full 会少算负的熵贡献。scale 实验把 C 和 reg 同时放大 1000 倍，比值 C/reg 不变，因此 K 不变，耦合也应几乎不变。epsilon 扫描中，epsilon 越小，线性成本通常越接近 EMD 成本，但方案更尖锐，迭代也更难。",
+  "pitfalls": [
+    "把 sinkhorn2 的返回值当作完整正则化目标；它只返回线性成本。",
+    "忘记 entropy 项中的符号，或把 sum(P log P) 当成熵本身；熵是负的 sum(P log P)。",
+    "只放大成本却不放大 epsilon，导致正则强度相对变弱，算法行为改变。",
+    "epsilon 取得过小又不使用 log 域，导致核矩阵下溢和 NaN。",
+    "把边缘残差小误认为已经精确求解了原始 EMD；Sinkhorn 解的是正则化问题。",
+    "在比较不同 epsilon 的结果时使用不同的成本单位或不同的停止阈值。"
+  ],
+  "quiz": {
+    "question": "POT 的 ot.sinkhorn2 在默认情况下返回什么？",
+    "options": [
+      "完整熵正则目标",
+      "线性成本 <P,C>",
+      "运输矩阵",
+      "W2 距离"
+    ],
+    "answer": 1,
+    "explanation": "sinkhorn2 返回正则计划的线性运输成本，不包含熵项，也不自动开根。即使以平方欧氏距离为成本并开根，通常仍不等于精确 W₂，因为计划经过了正则化。"
+  },
+  "exercise": {
+    "question": "给定 2×2 成本 C=[[0,1],[1,0]]，a=b=(0.5,0.5)，epsilon=0.5。写出 K、迭代更新公式，并求不动点对应的耦合。",
+    "answer": "K=exp(-C/epsilon)=[[1,e^{-2}],[e^{-2},1]]，记 r=e^{-2}≈0.1353。由对称性和边缘约束，最优缩放满足 u=v 且 P=diag(u)Kdiag(u)，行和为 0.5。设 u_1=u_2=u，则 u^2(1+r)=0.5，u=sqrt(0.5/(1+r))≈sqrt(0.5/1.1353)≈0.6636。耦合为 P=[[u^2, u^2 r],[u^2 r,u^2]]≈[[0.4403,0.0597],[0.0597,0.4403]]。与 epsilon→0 时的对角方案 [[0.5,0],[0,0.5]] 相比，熵项把一部分质量推到了非对角线。"
+  },
+  "references": [
+    {
+      "title": "POT bregman 模块文档",
+      "url": "https://pythonot.github.io/gen_modules/ot.bregman.html"
+    },
+    {
+      "title": "POT 用户指南",
+      "url": "https://pythonot.github.io/user_guide.html"
+    },
+    {
+      "title": "Sinkhorn Distances (Cuturi 2013)",
+      "url": "https://arxiv.org/abs/1306.0895"
+    }
+  ]
+}

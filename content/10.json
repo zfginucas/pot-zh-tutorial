@@ -1,0 +1,109 @@
+{
+  "id": "10",
+  "slug": "gromov",
+  "title": "跨空间匹配：GW 与 FGW",
+  "subtitle": "两张没有共同坐标系的地图，怎么对齐？",
+  "stage": "进阶应用",
+  "minutes": 45,
+  "prerequisites": [
+    "Kantorovich 传输与成本矩阵",
+    "图上的距离矩阵、置换与行随机矩阵",
+    "线性规划与条件梯度法的基本概念"
+  ],
+  "goals": [
+    "理解 Gromov-Wasserstein 为什么比较空间内部距离而不是坐标",
+    "能写出 GW 的四重和并解释条件梯度中的线性化成本",
+    "认识 GW 的非凸性与局部最优，不把数值解当成全局保证",
+    "掌握 FGW 中 alpha 的官方约定以及它与普通 Wasserstein 项的权衡"
+  ],
+  "sections": [
+    {
+      "title": "当两个空间没有共同坐标",
+      "paragraphs": [
+        "普通最优传输假设源点和目标点位于同一个度量空间，成本 \\( M_{ij} \\) 可以直接用坐标差计算。很多匹配问题没有这个条件。一个蛋白质图和一个社交网络图，节点之间没有共同的欧氏坐标；两组单词嵌入可能来自不同语言、不同维度的模型；两个形状的点云可能已经被各自旋转和平移。此时直接计算坐标距离没有意义，但每个空间内部都有结构：哪些点彼此接近、哪些点远离、图的边权如何分布。Gromov-Wasserstein 的核心思想是保留这种内部结构，让匹配后的距离关系尽量一致。",
+        "GW 不要求源空间和目标空间相同，也不要求维度一致。它只要求每个空间各自提供一个内部距离矩阵：源空间的 \\( C_1 \\) 是 n 乘 n，目标空间的 \\( C_2 \\) 是 m 乘 m。传输计划 \\( T \\) 仍然是 n 乘 m，满足行和为 p、列和为 q。衡量计划好坏的标准不是「点 i 到点 j 的坐标差」，而是「若 i 匹配到 j、k 匹配到 l，那么源空间中 i 与 k 的距离，是否接近目标空间中 j 与 l 的距离」。这是一个四重求和，因为要同时考虑两对匹配。",
+        "这种做法的代价是计算量大、优化困难。对每一对 (i,j) 和 (k,l)，都要读取两个距离并比较。朴素的四重循环是 n 平方乘 m 平方，虽然可以向量化，但规模仍然受限。更重要的是，目标函数关于 T 是二次的，不再是线性规划。GW 因此从「解一个 LP」变成「解一个非凸二次问题」。这也是本章反复强调非凸性的原因：数值解依赖初始化、步长和迭代，不保证全局最优。"
+      ],
+      "formula": "\\mathrm{GW}(T)=\\sum_{i,j,k,l}T_{ij}T_{kl}\\left(C_1[i,k]-C_2[j,l]\\right)^2",
+      "caption": "T 是 n 乘 m 的传输计划，T_ij 表示源点 i 匹配到目标点 j 的质量；i,k 是源空间的两个点；j,l 是目标空间的两个点；C_1[i,k] 是源空间中 i 与 k 的内部距离或相异度；C_2[j,l] 是目标空间中 j 与 l 的内部距离或相异度；平方项惩罚距离关系的不一致。整个四重和表示：在所有被匹配的点对上，比较两边的内部距离差。"
+    },
+    {
+      "title": "四重和怎样变成可计算的迭代",
+      "paragraphs": [
+        "为降低计算量，可对平方损失作矩阵分解，避免显式存储四维张量。条件梯度在当前计划 T 处计算目标梯度，以它作为线性 OT 成本求候选 S，再用 T_new=(1−γ)T+γS 更新。两个端点均满足同样边缘，因此凸组合仍然可行，不需要再次投影。当 C₁、C₂ 对称时，梯度包含因子 2；纯 GW 的线性子问题可以去掉共同正因子，但与特征项混合或进行线搜索时必须保持正确相对系数。",
+        "这个线性化成本有直观含义：对每个候选匹配 (i,j)，看当前所有匹配 (k,l) 造成的距离不一致，按 T_kl 加权。如果 i 匹配到 j 会让很多当前匹配的结构关系变差，L_ij 就大。条件梯度每次沿着「当前最便宜的线性方向」走一小步，步长可以通过线搜索或固定衰减序列确定。POT 的 gromov_wasserstein 封装了这套流程，返回计划 T 和对数信息；它不保证找到全局最优，需要通过迭代日志判断是否达到驻点容差；提前停止甚至不保证达到驻点。",
+        "四重和还有一层容易忽略的约定：C_1 和 C_2 必须是同一类型的相异度。如果源空间用欧氏距离，目标空间却用平方欧氏距离，那么两个距离的量纲和曲率都不同，GW 会试图匹配一个不公平的比较。通常应统一使用距离或统一使用平方距离，并在报告结果时说明。对图数据，C 可以是邻接矩阵的变换、最短路径距离或热核相似度；不同选择对应不同的结构假设，不是纯技术细节。"
+      ],
+      "formula": "(\\nabla \\mathrm{GW}(T))_{ij}=2\\sum_{k,l}T_{kl}(C_{1,ik}-C_{2,jl})^2,\\quad S\\in\\arg\\min_{S\\in U(p,q)}\\langle\\nabla\\mathrm{GW}(T),S\\rangle",
+      "caption": "在内部相异度矩阵对称时，显示的梯度含因子 2。S 是线性子问题候选计划，更新方向为 S−T；用步长 γ∈[0,1] 做凸组合即可保持边缘可行性。"
+    },
+    {
+      "title": "非凸：为什么不能把 GW 的解当成唯一答案",
+      "paragraphs": [
+        "GW 的目标关于 T 是二次的，可行域是耦合多面体。二次目标在凸集上一般不是凸函数，因此可能存在多个局部极小值。相同的两个距离矩阵，换一个初始化或换一个随机种子，可能得到不同的匹配计划，目标值也不同。对称结构会加剧这个问题：如果两个空间都有旋转对称或置换对称，多个计划可能具有完全相同的目标值，算法返回哪一个取决于数值细节。",
+        "因此，GW 实验至少应报告初始化方式、迭代次数、最终目标值和计划的行列边缘误差。如果只报告一个漂亮的可视化匹配，读者无法判断它是全局最优还是局部解。对于小规模问题，可以用多次随机初始化比较目标值分布；对于大规模问题，可以用独立的结构指标或下游任务来评估，而不是声称「找到了正确匹配」。POT 返回的 log 字典可以提供迭代和损失信息，适合做收敛诊断，但它不是全局最优证书。",
+        "这也解释了为什么 GW 的演示实验不能断言最优值等于零。即使两个空间由精确等距变换生成，理论上存在零成本计划，数值算法也未必在有限迭代内精确达到；浮点误差、初始化、停止阈值都会留下小残差。正确做法是检查「是否存在一个已知的零成本计划」以及「算法解离它有多远」，可行算法解提供目标值上界，已知零成本计划则可与损失非负性共同证明本例全局最小值为零；这仍不说明任意初始化都会达到它。"
+      ],
+      "formula": "\\widehat T\\in U(p,q),\\qquad \\mathrm{GW}(\\widehat T)\\ge\\min_{T\\in U(p,q)}\\mathrm{GW}(T)",
+      "caption": "算法返回的可行计划记作 T̂，其目标值是全局最小值的上界；没有全局证书就不能写成属于 argmin。边缘误差较大时，还需先检查可行性，不能直接应用这个界。"
+    },
+    {
+      "title": "FGW：结构项与特征项的折中",
+      "paragraphs": [
+        "有些问题除了内部结构，还存在可比较的节点特征。例如两个图匹配时，节点的度、标签或预训练嵌入可以提供一个特征成本 \\( M_{ij} \\)，表示源节点 i 与目标节点 j 的相似程度。Fused Gromov-Wasserstein 把结构项和特征项线性组合：结构项是 GW 损失，特征项是 \\( \\langle T,M\\rangle \\)。参数 alpha 控制两者的权重。POT 的官方约定是 (1−alpha) 乘特征项，alpha 乘结构项；alpha=0 时退化为以 M 为成本的普通线性 OT，alpha=1 时退化为纯 GW。",
+        "这个约定必须写清楚，因为不同论文或不同实现可能把 alpha 放在另一边。如果你看到「alpha 越大越强调结构」的说法，先检查它的公式，不能凭参数名猜。POT 中应直接查看 fused_gromov_wasserstein 的文档字符串或目标函数定义。实验报告里最好同时写出公式，而不只是写 alpha=0.5，否则读者无法复现。",
+        "FGW 的优化仍然是非凸的，因为结构项是二次的。特征项本身关于 T 是线性的，所以 alpha=0 时问题变成凸的线性 OT，可以用 emd 精确求解；alpha 大于 0 时又回到非凸。这个边界很有用：它让你能够把纯结构、纯特征和混合三种情况放在同一框架下比较，也提醒你混合模型不会自动获得全局保证。代码实验会分别计算 GW 计划与 EMD 计划在 alpha=0、0.5、1 下的 FGW 目标，直观看到权重切换如何改变偏好。"
+      ],
+      "formula": "\\mathrm{FGW}_{\\alpha}(T)=(1-\\alpha)\\langle T,M\\rangle+\\alpha\\,\\mathrm{GW}(T),\\quad \\alpha\\in[0,1]",
+      "caption": "POT 约定：α=0 为纯特征 OT，α=1 为纯结构 GW。结构与特征项的尺度会影响同一 α 的含义。比较不同论文或软件前应核对权重方向与目标的归一化。"
+    },
+    {
+      "title": "旋转与置换实验应该看什么",
+      "paragraphs": [
+        "代码构造七个二维随机点，先对它们做一个旋转加平移，得到目标点云。旋转和平移是等距变换，两个点云的两两欧氏距离完全相同，因此存在一个零 GW 成本的恒等匹配计划。代码用 gromov_wasserstein 求计划，打印它的 GW 成本、行和列和误差，并额外构造一个随机置换计划作为对照。由于随机点没有明显对称性，算法通常能找到接近恒等匹配的方案；但代码不会断言算法一定达到零，只断言行列边缘正确、计划非负、已知恒等计划的成本接近零。",
+        "第二个实验对源点做一次随机置换再计算 GW。置换不改变内部距离矩阵的结构，只是重新编号；算法返回的计划应该对应这个置换，而不是原来的下标顺序。这个实验帮助你区分「点云在空间中的位置」与「点在矩阵中的编号」。GW 只看到距离矩阵，编号本身没有几何意义；如果你的下游代码把计划的行索引当作原始点编号，就必须小心置换带来的对齐问题。",
+        "最后代码计算 FGW 在三个 alpha 下的目标值。alpha=0 时，特征成本的最优计划是普通 EMD 计划，因此它对 EMD 计划的 FGW 值不会比 GW 计划更差；这是线性 OT 的最优性，不是 GW 的全局保证。alpha=1 与 0.5 只打印，不做最优性断言。读结果时应关注趋势与量级，而不是把某一次运行的数值当成算法性能结论。"
+      ]
+    }
+  ],
+  "lab": "structure",
+  "labTask": "先只旋转右图，再增加形变。观察最优置换与结构失配。浏览器枚举四节点双射；完整 GW/FGW 与研究基准由下方 Python 验证。",
+  "code": "import numpy as np\nimport ot\n\nnp.random.seed(2)\nn = 7\nX = np.random.randn(n, 2)\ntheta = 0.7\nR = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])\nshift = np.array([1.5, -0.5])\nY = X @ R.T + shift\nC1 = ot.dist(X, X, metric='sqeuclidean')\nC2 = ot.dist(Y, Y, metric='sqeuclidean')\np = np.ones(n) / n\nq = np.ones(n) / n\n\nT, log = ot.gromov.gromov_wasserstein(C1, C2, p, q, loss_fun='square_loss', log=True, verbose=False)\nprint('GW 计划形状:', T.shape)\nprint('行和最大误差:', round(float(np.abs(T.sum(axis=1) - p).max()), 10))\nprint('列和最大误差:', round(float(np.abs(T.sum(axis=0) - q).max()), 10))\nassert T.shape == (n, n)\nassert np.all(T >= -1e-12)\nassert np.allclose(T.sum(axis=1), p, atol=1e-8)\nassert np.allclose(T.sum(axis=0), q, atol=1e-8)\n\ndef gw_cost(T, C1, C2):\n    r = T.sum(axis=1)\n    c = T.sum(axis=0)\n    term1 = float(np.sum(np.outer(r, r) * (C1 ** 2)))\n    term2 = float(np.sum(np.outer(c, c) * (C2 ** 2)))\n    cross = float(np.sum((T.T @ C1 @ T) * C2))\n    return term1 + term2 - 2.0 * cross\n\nT_id = np.eye(n) / n\nprint('已知恒等计划的 GW 成本:', gw_cost(T_id, C1, C2))\nprint('算法计划的 GW 成本:', gw_cost(T, C1, C2))\nassert abs(gw_cost(T_id, C1, C2)) < 1e-10\n\nperm = np.random.permutation(n)\nT_perm = np.zeros((n, n))\nT_perm[np.arange(n), perm] = 1.0 / n\nprint('随机置换计划的 GW 成本:', round(gw_cost(T_perm, C1, C2), 8))\n\nXp = X[perm]\nC1p = ot.dist(Xp, Xp, metric='sqeuclidean')\nT2, log2 = ot.gromov.gromov_wasserstein(C1p, C2, p, q, loss_fun='square_loss', log=True, verbose=False)\nprint('置换源空间后的 GW 成本:', round(gw_cost(T2, C1p, C2), 8))\nprint('置换源空间后计划的行和误差:', round(float(np.abs(T2.sum(axis=1) - p).max()), 10))\nassert T2.shape == (n, n)\nassert np.allclose(T2.sum(axis=1), p, atol=1e-8)\nassert np.allclose(T2.sum(axis=0), q, atol=1e-8)\n\nM = ot.dist(X, Y, metric='sqeuclidean')\nT_w = ot.emd(p, q, M)\n\ndef fgw_cost(T, alpha):\n    return alpha * gw_cost(T, C1, C2) + (1.0 - alpha) * float(np.sum(T * M))\n\nfor alpha in [0.0, 0.5, 1.0]:\n    print('alpha =', alpha, 'GW 计划的 FGW =', round(fgw_cost(T, alpha), 8), 'EMD 计划的 FGW =', round(fgw_cost(T_w, alpha), 8))\n\nassert fgw_cost(T_w, 0.0) <= fgw_cost(T, 0.0) + 1e-12\nprint('alpha=0 时 EMD 计划达到特征项最优；这只是一次线性 OT 最优性检查，不是 GW 全局最优证书。')\nfor alpha in [0.0, 0.5, 1.0]:\n    Tf, lf = ot.gromov.fused_gromov_wasserstein(M, C1, C2, p, q, loss_fun=\"square_loss\", alpha=alpha, log=True)\n    assert np.allclose(Tf.sum(axis=1), p)\n    assert np.allclose(Tf.sum(axis=0), q)\n    assert np.isclose(fgw_cost(Tf, alpha), lf[\"fgw_dist\"], atol=1e-8)\n    print(\"POT FGW alpha\", alpha, \"目标\", fgw_cost(Tf, alpha))\n",
+  "codeNotes": "GW 代码用已知等距变换构造可核对的零成本计划，并检验算法输出的边缘。FGW 采用 POT 的 (1−alpha) 特征项 + alpha 结构项约定；额外调用真正的 fused_gromov_wasserstein，并将手算目标与日志中的 fgw_dist 对照。特征成本使用同一坐标空间只是本例的选择，跨空间应用需另行定义可比较特征。",
+  "pitfalls": [
+    "把一次 GW 运行的结果当作全局最优。GW 是非凸二次问题，结果依赖初始化与迭代，可能只是局部解。",
+    "忘记检查行列边缘。非凸优化器偶尔会在数值容差外偏离 p、q；不检查就使用计划会把错误传播到下游。",
+    "把 C1 和 C2 一个用距离、一个用平方距离。GW 比较的是数值本身，量纲不一致会系统性地偏向某种结构。",
+    "记错 FGW 的 alpha 方向。POT 是 (1−alpha) 乘特征项、alpha 乘结构项；alpha=0 是线性 OT，alpha=1 是纯 GW。",
+    "源点重新编号时，距离矩阵的行列也随之置换，通常数值排列会改变；保持的是内部几何关系。计划的索引需要与同一个置换对应。"
+  ],
+  "quiz": {
+    "question": "Gromov-Wasserstein 依赖两个空间的哪种信息来建立匹配？",
+    "options": [
+      "两个空间共享的绝对坐标",
+      "每个空间内部点与点之间的距离或相异度",
+      "两个分布的边缘质量只有一维",
+      "目标空间的标签"
+    ],
+    "answer": 1,
+    "explanation": "GW 的核心是比较 C1[i,k] 与 C2[j,l]，也就是各自空间内部的成对距离关系。它不需要共享坐标，也不要求标签；边缘质量只提供行和、列和约束，匹配依据是内部结构。"
+  },
+  "exercise": {
+    "question": "给定对称内部相异度矩阵与当前计划 T，写出 GW 的梯度，并说明条件梯度的子问题为什么是线性 OT。解释 POT 中 alpha=0 的 FGW 为什么可用 emd 求解。",
+    "answer": "记 A_ijkl=(C1_ik−C2_jl)²。对称情形下，二次目标 ΣT_ij T_kl A_ijkl 的两项导数相等，因此 ∂GW/∂T_ij=2Σ_kl T_kl A_ijkl。将这个梯度固定为成本，最小化它与 S 的内积，且 S∈U(p,q)，就是一个线性 OT 子问题。凸组合 (1−γ)T+γS 保持行列边缘。POT 的 FGW=(1−alpha)⟨T,M⟩+alpha GW(T)，所以 alpha=0 仅剩线性特征成本，可由 emd 求解。alpha>0 时结构二次项使一般问题非凸；单次线性子问题最优并不能保证整个问题全局最优。"
+  },
+  "references": [
+    {
+      "title": "POT 官方 Gromov 模块文档",
+      "url": "https://pythonot.github.io/gen_modules/ot.gromov.html"
+    },
+    {
+      "title": "POT 官方示例总览（含 GW/FGW 示例）",
+      "url": "https://pythonot.github.io/auto_examples/index.html"
+    },
+    {
+      "title": "Computational Optimal Transport（Peyré 与 Cuturi）",
+      "url": "https://arxiv.org/abs/1803.00567"
+    }
+  ]
+}

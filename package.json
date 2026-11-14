@@ -1,0 +1,9 @@
+{
+  "name": "pot-zh-tutorial",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"build": "python scripts/build.py", "test": "node --test scripts/math.test.mjs", "preview": "python -m http.server 4173 --directory dist"},
+  "dependencies": {"katex": "0.16.22"},
+  "devDependencies": {"@playwright/test": "1.56.1"}
+}

@@ -1,0 +1,105 @@
+{
+  "id": "04",
+  "slug": "wasserstein",
+  "title": "Wasserstein 距离与一维捷径",
+  "subtitle": "两个分布均值相同，就真的“差不多”吗？",
+  "stage": "数学基础",
+  "minutes": 26,
+  "prerequisites": [
+    "完成第 03 章的 Kantorovich 问题",
+    "知道累积分布函数与分位数",
+    "会用 numpy 排序和 cumsum"
+  ],
+  "goals": [
+    "理解为什么 p 次成本要开 p 次根",
+    "能区分 Wp、Wp 的 p 次方与 emd2 的返回值",
+    "掌握一维情形按分位数配对的公式",
+    "能用代码验证相同均值但形状不同的分布仍有正距离"
+  ],
+  "sections": [
+    {
+      "title": "从最小成本到距离：为什么要开根",
+      "paragraphs": [
+        "最优传输成本本身已经能衡量两个分布有多难搬，但它对尺度不是线性的：把两个分布的所有坐标都放大 \\( \\lambda \\) 倍，成本会放大 \\( \\lambda^p \\) 倍。为了让结果像距离一样随几何尺度线性变化，我们取 \\( p \\) 次根，定义 \\( W_p = (\\text{最小 } p \\text{ 次成本})^{1/p} \\)。这样坐标放大 \\( \\lambda \\) 倍时，\\( W_p \\) 也放大 \\( \\lambda \\) 倍。",
+        "当 \\( p\\ge 1 \\) 且底层距离满足三角不等式时，\\( W_p \\) 也是一个满足三角不等式的距离：非负、对称、同一分布距离为零，并且 \\( W_p(\\alpha,\\gamma)\\le W_p(\\alpha,\\beta)+W_p(\\beta,\\gamma) \\)。证明要用到耦合的粘合技巧，这里不展开，但结论非常重要：它让 Wasserstein 距离可以像欧氏距离一样用于聚类、最近邻和收敛性分析。",
+        "当 \\( 0<p<1 \\) 时，\\( W_p \\) 通常不再满足三角不等式，只是一个拟度量。很多算法仍然可以使用它，但不要把它当作严格距离。另一个常见混淆是 \\( W_p^p \\) 与 \\( W_p \\)：前者是成本，后者是开了根的距离。POT 的 emd2 返回的是成本，因此平方欧氏成本下得到的是 \\( W_2^2 \\)，开根才是 \\( W_2 \\)。"
+      ],
+      "formula": "W_p(\\mu,\\nu)=\\left(\\min_{P\\in U(a,b)}\\sum_{i,j}P_{ij}d(x_i,y_j)^p\\right)^{1/p}",
+      "caption": "p≥1，d 是底层度量，概率分布具有有限 p 阶矩。"
+    },
+    {
+      "title": "底层度量与 p 次成本",
+      "paragraphs": [
+        "Wasserstein 距离依赖两个选择：底层距离 \\( d(x,y) \\) 和幂次 \\( p \\)。成本通常取 \\( d(x,y)^p \\)。在欧氏空间中，\\( p=1 \\) 对应“每单位质量走多远”，\\( p=2 \\) 对应“平方距离”，对大距离惩罚更重。不同的 \\( p \\) 会给出不同的最优耦合，也会改变距离的数值。",
+        "底层度量不一定是欧氏距离。可以是曼哈顿距离、测地距离、图上最短路，甚至是由特征定义的非欧距离。只要 \\( d \\) 满足距离公理，\\( W_p \\) 在适当条件下就继承这些性质。若底层对象不是同一空间中的点，例如两个不同维度的特征空间，就不能直接套用经典 Wasserstein，需要后面章节的 Gromov-Wasserstein。",
+        "还要注意成本矩阵的尺度。若把成本从 \\( d^p \\) 改成 \\( (\\lambda d)^p \\)，成本放大 \\( \\lambda^p \\)，\\( W_p \\) 放大 \\( \\lambda \\)。这正是开根的意义：它把“质量的几何搬运”转换成一个以长度为单位量纲的量。"
+      ]
+    },
+    {
+      "title": "一维排序：分位数就是最优配对",
+      "paragraphs": [
+        "一维情形有一个极大的简化：最优耦合可以把两个分布各自排序，然后按分位数一一配对。直观上，若 \\( x_1<x_2 \\) 却被送到 \\( y_2 \\)，而 \\( x_2 \\) 被送到 \\( y_1<y_2 \\)，把这两条路线交换不会增加总成本，反而会减少交叉。反复消除交叉，就得到单调配对。",
+        "用累积分布函数说话：设 \\( F_\\alpha^{-1}(q) \\) 是供给分布在分位 \\( q \\) 处的值，\\( F_\\beta^{-1}(q) \\) 是需求分布的对应值。最优方案把每个 \\( q \\) 处的供给送到同一分位处的需求，于是 \\( W_p^p \\) 等于两条分位函数差的 \\( p \\) 次方在 \\([0,1]\\) 上的积分。离散情形把积分换成按质量长度加权的求和。",
+        "这个公式的代价是 \\( O(n\\log n) \\) 的排序，而不是一般维度下的线性规划。它也解释了为什么一维 Wasserstein 距离可以非常快地计算，以及为什么切片方法要把高维数据投影到一维：投影后用排序即可近似原问题。"
+      ]
+    },
+    {
+      "title": "相同均值，不同形状",
+      "paragraphs": [
+        "均值只描述分布的重心，不描述分布摊开的程度。取 \\( x=(-1,0,1) \\) 和 \\( y=(-2,0,2) \\)，两者等权，均值都为 0。但 \\( y \\) 更分散，把 \\( x \\) 搬到 \\( y \\) 需要把两端的质量向外移动，因此 \\( W_1 \\) 和 \\( W_2 \\) 都大于 0。这说明 Wasserstein 距离能看见“形状差异”，而均值差看不见。",
+        "同理，方差更大也不一定意味着 Wasserstein 距离更大；还要看质量如何分布。Wasserstein 距离比较的是整体的搬运代价，而不是某一个矩。它比单纯的均值或方差更细，但也更依赖底层的几何与成本选择。",
+        "当两个分布完全相同、但支撑点的排列顺序不同，Wasserstein 距离仍然为零，因为分布作为测度不关心数组下标。实现时务必先按坐标排序，再按权重配对；若直接按输入顺序配对，会得到一个可行但通常不是最优的耦合。"
+      ]
+    },
+    {
+      "title": "一维公式的边界",
+      "paragraphs": [
+        "一维排序公式依赖于底层空间的全序结构。到了二维或更高维，没有自然的“从左到右”顺序，按坐标分别排序也不再给出最优耦合。此时需要求解线性规划、Sinkhorn 或使用切片近似。不要把一维结论直接搬到多维。",
+        "另外，离散分布可能有重复支撑点或零权重。重复点不影响公式，只要把同一点的质量合并即可；零权重点可以保留，但会增加无意义的计算。实现分位积分时，应把累积权重的断点合并，避免零长度区间。",
+        "最后，开根与不开根的选择要一致。报告 \\( W_2 \\) 时，要先确认成本矩阵是平方欧氏距离，再对最小成本开平方；报告 \\( W_2^2 \\) 时则不要开根。代码和文字中的每个数字都应标明属于哪一种。"
+      ],
+      "formula": "W_p(\\alpha,\\beta)=\\left(\\min_{P\\in U(a,b)}\\sum_{i,j}P_{ij}\\,\\lVert x_i-y_j\\rVert^p\\right)^{1/p}, \\qquad W_p^p(\\alpha,\\beta)=\\int_0^1\\left|F_\\alpha^{-1}(q)-F_\\beta^{-1}(q)\\right|^p\\,dq",
+      "caption": "第一式是 \\( p \\) 次 Wasserstein 距离：先求最小 \\( p \\) 次运输成本，再开 \\( p \\) 次根；\\( P_{ij} \\) 是从 \\( x_i \\) 到 \\( y_j \\) 的质量；\\( U(a,b) \\) 是边缘约束集合。第二式是一维特例：\\( F_\\alpha^{-1} \\) 和 \\( F_\\beta^{-1} \\) 分别是两个分布的 quantile 函数；\\( q \\) 是分位水平，从 0 到 1 积分。"
+    }
+  ],
+  "lab": "interpolation",
+  "labTask": "拖动时间 t，对比固定位置改变权重的混合与移动位置的位移插值。预测 t=0.5 时两张图的区别，再播放验证。",
+  "code": "import numpy as np\nimport ot\nfrom scipy.stats import wasserstein_distance\n\ndef wp_1d(x, a, y, b, p):\n    ox = np.argsort(x)\n    oy = np.argsort(y)\n    xs = x[ox]\n    as_ = a[ox]\n    ys = y[oy]\n    bs = b[oy]\n    ca = np.cumsum(as_)\n    cb = np.cumsum(bs)\n    ca = ca / ca[-1]\n    cb = cb / cb[-1]\n    breaks = np.unique(np.concatenate(([0.0], ca[:-1], cb[:-1], [1.0])))\n    total = 0.0\n    for left, right in zip(breaks[:-1], breaks[1:]):\n        if right <= left:\n            continue\n        mid = 0.5 * (left + right)\n        ix = np.searchsorted(ca, mid, side='left')\n        iy = np.searchsorted(cb, mid, side='left')\n        ix = min(ix, len(xs) - 1)\n        iy = min(iy, len(ys) - 1)\n        total += (right - left) * abs(xs[ix] - ys[iy]) ** p\n    return total ** (1.0 / p)\n\nx = np.array([-1.0, 0.0, 1.0])\ny = np.array([-2.0, 0.0, 2.0])\na = np.ones(3) / 3.0\nb = np.ones(3) / 3.0\nM1 = ot.dist(x[:, None], y[:, None], metric='euclidean')\nM2 = M1 ** 2\n\nw1_emd = ot.emd2(a, b, M1)\nw2_emd = np.sqrt(ot.emd2(a, b, M2))\nw1_formula = wp_1d(x, a, y, b, 1)\nw2_formula = wp_1d(x, a, y, b, 2)\n\nprint('x 的均值 =', np.average(x, weights=a))\nprint('y 的均值 =', np.average(y, weights=b))\nprint('W1 (emd2) =', round(float(w1_emd), 6))\nprint('W1 (分位公式) =', round(float(w1_formula), 6))\nprint('W2 (emd2 开根) =', round(float(w2_emd), 6))\nprint('W2 (分位公式) =', round(float(w2_formula), 6))\nprint('scipy 的 W1 =', round(float(wasserstein_distance(x, y, a, b)), 6))\nassert np.isclose(w1_emd, w1_formula)\nassert np.isclose(w2_emd, w2_formula)\nassert np.isclose(w1_emd, wasserstein_distance(x, y, a, b))\nassert np.isclose(np.average(x, weights=a), np.average(y, weights=b))\nassert w1_emd > 0.0\n\nx_u = np.array([-1.0, 0.0, 1.0])\ny_u = np.array([-2.0, 0.0, 2.0])\na_u = np.array([0.2, 0.3, 0.5])\nb_u = np.array([0.4, 0.1, 0.5])\nw1_u = ot.emd2(a_u, b_u, M1)\nw2_u = np.sqrt(ot.emd2(a_u, b_u, M2))\nprint('不等权重 W1 =', round(float(w1_u), 6), '公式 =', round(float(wp_1d(x_u, a_u, y_u, b_u, 1)), 6))\nprint('不等权重 W2 =', round(float(w2_u), 6), '公式 =', round(float(wp_1d(x_u, a_u, y_u, b_u, 2)), 6))\nassert np.isclose(w1_u, wp_1d(x_u, a_u, y_u, b_u, 1))\nassert np.isclose(w2_u, wp_1d(x_u, a_u, y_u, b_u, 2))\n\nx0 = np.array([0.0, 1.0, 3.0])\nx1 = np.array([2.0, 4.0, 5.0])\nw = np.ones(3) / 3.0\nbase = wp_1d(x0, w, x1, w, 2)\nprint('插值基准 W2 =', round(float(base), 6))\nfor t in [0.0, 0.25, 0.5, 1.0]:\n    xt = (1.0 - t) * x0 + t * x1\n    wt = wp_1d(x0, w, xt, w, 2)\n    print('t =', t, 'W2(x0, xt) =', round(float(wt), 6), 't * 基准 =', round(float(t * base), 6))\n    assert np.isclose(wt, t * base)\n",
+  "codeNotes": "wp_1d 先按支撑坐标排序，再用累积权重把 [0,1] 分成小区间；每个小区间内两个分位函数都是常数，于是积分变成“区间长度乘 |x-y|^p”。等权情况下，这与直接排序配对完全一致。w1_emd 与 w1_formula 相等，说明一维线性规划可以通过排序求解；w2_emd 是对平方成本开根，因此与 p=2 的分位公式一致。x 和 y 的均值都为 0，但 w1_emd 约等于 0.6667，说明均值相同不代表分布相同。不等权重部分验证了分位积分不依赖等权假设。最后的插值中 xt 是 x0 与 x1 的凸组合，因此 W2(x0,xt)=t·W2(x0,x1)，数值上与 t 成正比。",
+  "pitfalls": [
+    "把 Wp 的 p 次方当作 Wp 报告；平方欧氏成本下 emd2 返回的是 W2 的平方。",
+    "在一维中按输入顺序而不是按坐标排序后配对，得到可行但通常非最优的耦合。",
+    "认为均值相同就等价于分布相同；均值和方差都不能完全决定 Wasserstein 距离。",
+    "在 p<1 时仍然使用三角不等式；此时 Wp 通常不是度量。",
+    "处理不等权重时直接比较排序后的数组元素，而不按累积质量区间配对。"
+  ],
+  "quiz": {
+    "question": "使用平方欧氏距离作为成本矩阵时，ot.emd2 返回的值是什么？",
+    "options": [
+      "W1",
+      "W2",
+      "W2 的平方",
+      "W2 的四次方"
+    ],
+    "answer": 2,
+    "explanation": "emd2 返回最小线性成本。若成本矩阵元素是欧氏距离的平方，最小成本就是 W2 的平方；要得到 W2 还需开平方。"
+  },
+  "exercise": {
+    "question": "一维分布 alpha 在 0 和 2 各有质量 0.5，beta 在 1 和 3 各有质量 0.5。求 W1 和 W2。若把 beta 整体右移 1 个单位，结果如何变化？",
+    "answer": "两个分布各自排序后等权配对：0↔1，2↔3。W1=(|0-1|+|2-3|)/2=1。W2^2=((0-1)^2+(2-3)^2)/2=1，所以 W2=1。若 beta 右移 1 变成在 2 和 4，则配对为 0↔2、2↔4，W1=(2+2)/2=2，W2^2=(4+4)/2=4，W2=2。在本例中，两端始终是同形状且同方向的整体平移，因此距离从 1 增为 2。一般情况下，单独移动一个分布并不会让它与任意另一分布的 Wasserstein 距离恰好增加平移长度。"
+  },
+  "references": [
+    {
+      "title": "POT 用户指南",
+      "url": "https://pythonot.github.io/user_guide.html"
+    },
+    {
+      "title": "POT 全部 API 索引",
+      "url": "https://pythonot.github.io/all.html"
+    },
+    {
+      "title": "Computational Optimal Transport (Peyré & Cuturi)",
+      "url": "https://arxiv.org/abs/1803.00567"
+    }
+  ]
+}

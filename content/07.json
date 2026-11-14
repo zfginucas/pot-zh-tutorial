@@ -1,0 +1,106 @@
+{
+  "id": "07",
+  "slug": "divergence",
+  "title": "从正则偏差到 Sinkhorn 散度",
+  "subtitle": "为什么正则化后的最优值不能直接当作距离？",
+  "stage": "核心算法",
+  "minutes": 30,
+  "prerequisites": [
+    "完成第 06 章的 Sinkhorn 迭代",
+    "知道 KL 散度的定义",
+    "会计算含 log 的逐元素表达式"
+  ],
+  "goals": [
+    "写出完整熵正则目标并处理 0log0",
+    "理解自距离偏差的来源",
+    "掌握 Sinkhorn 散度的去偏公式",
+    "能验证自距离为零、正性以及三角不等式失效的例子"
+  ],
+  "sections": [
+    {
+      "title": "正则化最优值自带偏差",
+      "paragraphs": [
+        "第 06 章的目标里含有熵项。即使两个分布完全相同，最优耦合也不一定是把每个点原样留在原地的“恒等计划”，因为熵项会主动把质量摊开。摊开本身会贡献一个非零的熵值，于是正则化最优值在 \\( a \\) 与 \\( a \\) 之间也可能不是 0。这个现象叫自距离偏差。",
+        "偏差的大小与正则强度、权重分布和成本尺度有关。它不一定坏：正则化本来就是在改变问题。但如果我们想用最优值衡量两个分布有多不同，就必须先把这种“自己和自己比较时也存在的基线”减掉。否则不同的分布对会带着不同的基线，数值不可比。",
+        "一个自然的修正办法是分别计算三个问题的正则化最优值：\\( a \\) 对 \\( b \\)、\\( a \\) 对 \\( a \\)、\\( b \\) 对 \\( b \\)。把后两个自比较的基线各减去一半，就得到去偏后的量。这个构造就是 Sinkhorn 散度。"
+      ]
+    },
+    {
+      "title": "完整正则目标与 0log0",
+      "paragraphs": [
+        "本章采用的目标是 \\( F_\\varepsilon(a,b)=\\min_{P\\in U(a,b)}\\langle P,C\\rangle+\\varepsilon\\sum_{ij}P_{ij}\\log P_{ij} \\)。它与“相对乘积分布的 KL”写法只相差一个只依赖边缘的常数，因此最优耦合相同；但目标值不同，所以三个问题必须使用同一个约定，不能混用。",
+        "计算 \\( \\sum P\\log P \\) 时，若 \\( P_{ij}=0 \\)，按极限约定 \\( 0\\log 0=0 \\)。代码里必须显式处理，否则会得到 \\( -\\infty \\) 或 NaN 警告。Sinkhorn 返回的耦合通常严格为正，但在数值下溢、截断或人为稀疏化之后，零元素很常见，不能依赖“它一定大于零”。",
+        "完整目标不是 `sinkhorn2` 的返回值。`sinkhorn2` 只给线性成本 \\( \\langle P,C\\rangle \\)，必须再加上 \\( \\varepsilon\\sum P\\log P \\) 才是本章的 \\( F_\\varepsilon \\)。这一点在计算散度时尤其关键，因为去偏公式作用在完整目标上，而不是作用在线性成本上。"
+      ]
+    },
+    {
+      "title": "去偏：三个同参数的问题",
+      "paragraphs": [
+        "Sinkhorn 散度定义为 \\( S_\\varepsilon(a,b)=F_\\varepsilon(a,b)-\\frac12F_\\varepsilon(a,a)-\\frac12F_\\varepsilon(b,b) \\)。三个问题必须使用同一个 \\( \\varepsilon \\)、同一套成本定义和同一种熵项约定。若 \\( a \\) 与 \\( a \\) 的自比较用了不同的正则强度，减掉的基线就不匹配，散度可能变成负数或失去解释。",
+        "当 \\( a=b \\) 时，三项相同，散度精确为 0。这是去偏公式最直接的好处：它把自距离强制归零。对于不同的分布，散度通常大于 0；在成本来自平方欧氏距离等条件下，非负性有理论保证。它也不等于原始 Wasserstein 距离，而是带正则的相似度。",
+        "还可以从 KL 形式理解去偏。若把目标写成相对 \\( a\\otimes b \\) 的广义 KL，自比较项的基线恰好为 0；换成本章的熵写法后，自比较项变成非零常数，而三个项的常数刚好在 \\( 1/2 \\) 权重下抵消。两种写法得到同一个散度值，这解释了为什么去偏公式长这样。"
+      ],
+      "formula": "S_\\varepsilon(a,b)=F_\\varepsilon(a,b)-\\tfrac12F_\\varepsilon(a,a)-\\tfrac12F_\\varepsilon(b,b)",
+      "caption": "三个完整正则最优值使用相同的 ε 与正则定义。"
+    },
+    {
+      "title": "散度的性质与边界",
+      "paragraphs": [
+        "Sinkhorn 散度满足非负性和同一性：\\( S_\\varepsilon(a,b)\\ge 0 \\)，且 \\( S_\\varepsilon(a,b)=0 \\) 当且仅当 \\( a=b \\)（在适当的成本与正则条件下）。它关于两个分布对称，因为公式对调 \\( a,b \\) 不变。这些性质使它比未去偏的正则化最优值更适合做比较。",
+        "但它通常不满足三角不等式。一个简单的反例是三个单点分布，分别在 0、1、2，成本取平方欧氏距离。单点之间唯一的耦合就是把全部质量送过去，因此 \\( S(0,2)=4 \\)，而 \\( S(0,1)=1 \\)、\\( S(1,2)=1 \\)。于是 \\( S(0,2)=4>1+1=2 \\)，三角不等式失效。",
+        "这说明 Sinkhorn 散度更像“平方距离”而不是“距离”。它可以用于训练损失、分布对齐和模型选择，但在需要严格度量公理的场合，例如某些最近邻理论或收敛性证明，必须明确它不是度量。不要因为名字里有“散度”就假设它满足所有距离性质。"
+      ]
+    },
+    {
+      "title": "实现中的一致性与诊断",
+      "paragraphs": [
+        "实现时建议把完整目标封装成一个函数：给定两个分布、两组支撑和正则强度，先调用 `ot.sinkhorn` 得到耦合，再用掩码只对正元素计算 \\( P\\log P \\)，最后加上线性成本。这样三个问题共用同一个函数，减少约定不一致的风险。",
+        "诊断时至少检查三件事：自比较的散度是否接近 0；不同分布之间的散度是否为正；改变 \\( \\varepsilon \\) 时数值是否连续变化。若自比较不接近 0，通常是三个问题用了不同的成本矩阵或不同的正则强度；若散度为负，先检查是否漏掉了熵项或把符号写反。",
+        "最后要记住，散度不是原始传输成本。它去掉了自比较基线，因此数值通常比 \\( F_\\varepsilon(a,b) \\) 大；它也不自动等于 \\( W_2 \\) 或 \\( W_2^2 \\)。报告时应写清正则强度、成本定义和是否去偏。"
+      ],
+      "formula": "F_\\varepsilon(a,b)=\\min_{P\\in U(a,b)}\\left\\{\\langle P,C\\rangle+\\varepsilon\\sum_{i,j}P_{ij}\\log P_{ij}\\right\\}, \\qquad S_\\varepsilon(a,b)=F_\\varepsilon(a,b)-\\frac{1}{2}F_\\varepsilon(a,a)-\\frac{1}{2}F_\\varepsilon(b,b)",
+      "caption": "\\( F_\\varepsilon(a,b) \\) 是完整熵正则目标；\\( \\langle P,C\\rangle \\) 是线性运输成本；\\( \\varepsilon \\) 是正则强度；\\( \\sum P\\log P \\) 是熵项（约定 \\( 0\\log0=0 \\)）；\\( S_\\varepsilon \\) 是去偏后的 Sinkhorn 散度，三个 \\( F_\\varepsilon \\) 必须使用同一个 \\( \\varepsilon \\) 和同一套成本。"
+    }
+  ],
+  "lab": "sinkhorn",
+  "labTask": "固定质量与成本，调节 ε，观察计划熵、线性成本、完整正则目标和边缘误差。该实验展示正则计划；去偏或求导请运行下面的独立 Python 实验。",
+  "code": "import numpy as np\nimport ot\n\ndef full_objective(a, b, X, Y, reg):\n    C = ot.dist(X, Y, metric='sqeuclidean')\n    G = ot.sinkhorn(a, b, C, reg, method='sinkhorn_log', numItermax=5000, stopThr=1e-12)\n    mask = G > 0\n    entropy_term = np.sum(G[mask] * np.log(G[mask]))\n    F = float(np.sum(G * C) + reg * entropy_term)\n    return G, C, F\n\ndef sinkhorn_divergence(a, b, X, Y, reg):\n    Gab, Cab, Fab = full_objective(a, b, X, Y, reg)\n    Gaa, Caa, Faa = full_objective(a, a, X, X, reg)\n    Gbb, Cbb, Fbb = full_objective(b, b, Y, Y, reg)\n    S = Fab - 0.5 * Faa - 0.5 * Fbb\n    return S, (Fab, Faa, Fbb), (Gab, Cab)\n\nX = np.array([[0.0], [1.0], [2.0]])\nY = np.array([[0.5], [1.5], [2.5]])\na = np.array([0.2, 0.5, 0.3])\nb = np.array([0.3, 0.3, 0.4])\nreg = 0.2\n\nS_ab, parts, payload = sinkhorn_divergence(a, b, X, Y, reg)\nFab, Faa, Fbb = parts\nGab, Cab = payload\nprint('F_eps(a,b) =', round(Fab, 8))\nprint('F_eps(a,a) =', round(Faa, 8), '(自比较偏差)')\nprint('F_eps(b,b) =', round(Fbb, 8), '(自比较偏差)')\nprint('去偏散度 S =', round(S_ab, 8))\nprint('线性成本 <G_ab,C_ab> =', round(float(np.sum(Gab * Cab)), 8))\nassert Faa < 0.0\nassert Fbb < 0.0\nassert S_ab > 1e-8\nassert not np.isclose(S_ab, Fab, atol=1e-8)\n\nS_aa, parts_aa, _ = sinkhorn_divergence(a, a, X, X, reg)\nprint('S(a,a) =', round(S_aa, 12))\nassert abs(S_aa) < 1e-9\n\nX0 = np.array([[0.0]])\nX1 = np.array([[1.0]])\nX2 = np.array([[2.0]])\none = np.array([1.0])\nS01, _, _ = sinkhorn_divergence(one, one, X0, X1, reg)\nS12, _, _ = sinkhorn_divergence(one, one, X1, X2, reg)\nS02, _, _ = sinkhorn_divergence(one, one, X0, X2, reg)\nprint('单点分布示例: S(0,1) =', round(S01, 8), 'S(1,2) =', round(S12, 8), 'S(0,2) =', round(S02, 8))\nprint('S(0,2) - (S(0,1)+S(1,2)) =', round(S02 - S01 - S12, 8))\nassert np.isclose(S02, 4.0, atol=1e-8)\nassert S02 > S01 + S12 + 1e-9\n",
+  "codeNotes": "full_objective 先用 ot.sinkhorn 求正则化耦合，再只对 G>0 的元素计算 G log G，避免 0log0；F 的值等于线性成本加上 reg 乘熵项。Faa 和 Fbb 是自比较的完整目标，它们为负，说明未去偏的值带有基线，不能直接当相似度。S_ab 减去两个基线的一半后为正。S(a,a) 在公式上恒为 0，数值上只差浮点误差。单点例子中，每个问题只有唯一耦合，熵项为 0，因此 F 就等于平方距离，去偏散度也是平方距离；S(0,2)=4 大于 1+1，直接展示了三角不等式失效。",
+  "pitfalls": [
+    "用 sinkhorn2 的线性成本代替完整目标去做去偏，漏掉熵项导致基线不匹配。",
+    "三个问题使用不同的 epsilon 或不同的成本矩阵，散度可能为负。",
+    "计算 P log P 时没有处理零元素，得到 NaN 或 -inf。",
+    "把 Sinkhorn 散度当成严格的度量，误用三角不等式。",
+    "认为自比较的 F_eps(a,a) 必然为 0；在熵约定下它通常不为零。",
+    "把散度与 W2 或 W2 的平方直接等同；它们只在正则参数趋于某个极限时才有近似关系。"
+  ],
+  "quiz": {
+    "question": "Sinkhorn 散度为什么要减去两个自比较项？",
+    "options": [
+      "为了让运输矩阵满足行和约束",
+      "为了消除熵正则化带来的自距离基线",
+      "为了把成本矩阵变成欧氏距离",
+      "为了强制散度满足三角不等式"
+    ],
+    "answer": 1,
+    "explanation": "正则化目标在分布与自身比较时通常不为零，这个基线会污染不同分布之间的比较。减去两个自比较项的一半可以把基线抵消，使同一分布的散度为零。它并不保证三角不等式。"
+  },
+  "exercise": {
+    "question": "设 a 与 b 各是一个单点分布，分别位于 0 和 d，成本取平方欧氏距离，epsilon=1。求 F_eps(a,b)、F_eps(a,a)、F_eps(b,b) 和 Sinkhorn 散度。若再加入一个位于 d/2 的单点分布 c，验证三角不等式是否成立。",
+    "answer": "单点分布之间的耦合被边缘约束唯一确定为全部质量 1，因此 P=[[1]]。a 与 b 的线性成本是 d^2，熵项是 1·log1=0，所以 F_eps(a,b)=d^2。自比较的成本为 0，耦合仍为 1，F_eps(a,a)=F_eps(b,b)=0。于是 S(a,b)=d^2。对 c 在 d/2，有 S(a,c)=(d/2)^2=d^2/4，S(c,b)=(d/2)^2=d^2/4，两者之和为 d^2/2，小于 S(a,b)=d^2（d>0）。因此三角不等式不成立。这个例子说明去偏散度在单点情形退化为平方距离。"
+  },
+  "references": [
+    {
+      "title": "POT bregman 模块文档",
+      "url": "https://pythonot.github.io/gen_modules/ot.bregman.html"
+    },
+    {
+      "title": "Interpolating between Optimal Transport and MMD using Sinkhorn Divergences (Feydy et al.)",
+      "url": "https://proceedings.mlr.press/v89/feydy19a.html"
+    },
+    {
+      "title": "Sinkhorn Distances (Cuturi 2013)",
+      "url": "https://arxiv.org/abs/1306.0895"
+    }
+  ]
+}

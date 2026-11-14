@@ -1,0 +1,103 @@
+{
+  "id": "12",
+  "slug": "applications",
+  "title": "应用：颜色迁移与域适应",
+  "subtitle": "最优传输算出的计划，怎样变成每个点的移动方案？",
+  "stage": "研究实践",
+  "minutes": 40,
+  "prerequisites": [
+    "平衡最优传输与成本矩阵",
+    "重心映射的基本概念",
+    "直方图权重与归一化"
+  ],
+  "goals": [
+    "会把传输计划转换为逐点的重心映射",
+    "理解颜色迁移中源颜色如何被移动到目标颜色附近",
+    "能区分传输映射与分类器，并说明为什么标签不会自动保持",
+    "会在合成 RGB 与二维域适应数据上检查边缘、均值和边界"
+  ],
+  "sections": [
+    {
+      "title": "颜色迁移：把像素颜色当成可运输的质量",
+      "paragraphs": [
+        "一张图片的颜色分布可以看成一个三维 RGB 空间中的点云。源图片的每个像素是一个点，目标图片的每个像素也是一个点。颜色迁移的目标不是逐像素对应，而是让源图片的整体色调接近目标图片。最优传输提供了一个自然的方案：把源像素的颜色质量运输到目标颜色上，运输成本用 RGB 空间中的距离衡量。由于像素数量巨大，实际系统通常先对颜色做聚类或量化，得到较小的直方图，再在直方图之间做传输，最后把计划映射回像素。",
+        "本章不使用真实图片，而是用随机生成的三维 RGB 点云模拟两组配色。源点云围绕暖色中心，目标点云围绕冷色中心。每个点带一个权重，最简单的设置是等权重。成本矩阵使用平方欧氏距离，POT 的 ot.dist 默认就是平方欧氏，但代码显式写 metric 以避免歧义。求解 ot.emd 得到一个传输计划 P，它满足行和为源权重 a、列和为目标权重 b。接下来要解决的问题是：P 描述的是质量如何从源点流向目标点，而下游通常需要每个源点移动到哪里。"
+      ],
+      "formula": "P^{\\star}=\\arg\\min_{P\\in U(a,b)}\\sum_{i=1}^{n}\\sum_{j=1}^{m}P_{ij}\\,\\|x_i-y_j\\|_2^2",
+      "caption": "P 是 n 乘 m 的传输计划；U(a,b) 是行和为 a、列和为 b 的耦合集合；P_ij 是从源颜色 x_i 运到目标颜色 y_j 的质量；x_i 是第 i 个源 RGB 点；y_j 是第 j 个目标 RGB 点；平方欧氏距离衡量颜色差异。目标是最小化总运输成本。P 的每一行描述一个源点的质量如何分散到多个目标点上，因此它本身还不是一个点对点的映射。"
+    },
+    {
+      "title": "重心映射：从计划到逐点移动",
+      "paragraphs": [
+        "给定最优计划 P，最常用的逐点映射是重心映射。对每个源点 i，把它这一行的质量归一化，得到一组权重 T_ij 等于 P_ij 除以 a_i。这些权重非负且求和为一，然后用它们对目标点 y_j 做加权平均，得到源点 i 的新位置。直观上，源点的质量可能被分到多个目标点，重心映射把那些目标点按质量比例合成一个代表位置。这个映射定义在所有源点上，即使最优计划不是置换，也能给出一个确定的新坐标。",
+        "重心映射有几个重要性质。第一，它的行和为 1，因此每个源点都有一个明确定义的新位置。第二，若按源权重 a 对映射后的点求加权平均，结果恰好等于按目标权重 b 对 y_j 求的加权平均。也就是说，映射保持了一阶矩：源点云的整体均值会被搬到目标点云的整体均值。第三，映射后的点通常是目标点的凸组合，因此落在目标点云的凸包内；若目标颜色都在 [0,1] 内，映射结果也在 [0,1] 内；若目标颜色本身超出合法范围，映射也可能越界，需要裁剪或色彩空间变换。",
+        "不要把映射后的点集合当成目标分布本身。虽然它们的加权均值相同，边缘分布一般不同；只有最优计划接近置换时，映射才会近似把每个源点送到一个目标点。重心映射是传输计划的一种确定性摘要，适合可视化和下游特征变换，但它丢失了计划中「一个源点分给多个目标点」的细节。若任务需要严格的目标分布，应直接使用计划 P，或在映射后重新做一次分布匹配。"
+      ],
+      "formula": "T_{ij}=\\frac{P_{ij}}{a_i},\\qquad \\tilde{x}_i=\\sum_{j=1}^{m}T_{ij}\\,y_j",
+      "caption": "P_ij 是计划中从源点 i 到目标点 j 的质量；a_i 是源点 i 的总质量；T_ij 是归一化后的条件分配权重；y_j 是目标点坐标；tilde{x}_i 是源点 i 经过重心映射后的新坐标。T 的每一行和为 1；若所有 a_i 都是 1/n，则 T 就是 n 乘 P。计算时除以 a 而不是 b，因为归一化的是每个源点的出发质量。"
+    },
+    {
+      "title": "域适应：映射不是分类器",
+      "paragraphs": [
+        "域适应用另一组数据说明同样的机制：源域有特征和标签，目标域只有特征，希望把源域学到的分类器迁移到目标域。最优传输可以做特征层面的对齐：把源域特征点运输到目标域特征点上，用重心映射得到变换后的源特征，再在变换后的特征上训练分类器。这样做的假设是，两域的条件分布或几何结构足够相似，对齐边缘分布能减少偏移。但这个假设不是定理，尤其当两域的类别比例不同、存在标签翻转或目标域有未见类别时，边缘对齐可能把不同类别的点混在一起。",
+        "关键要区分「分布对齐」和「标签保持」。OT 只看到特征和权重，完全不知道标签；它不会因为两个点被匹配就保证它们属于同一类。重心映射后的源点可能落在目标域的决策边界附近，甚至被映射到错误类别的区域。代码中的合成二维数据会让对齐前后的最近质心分类准确率都打印出来，但不会断言对齐一定提升准确率。真实项目中应使用目标域的验证标签或代理指标来评估，而不是把传输成本下降当成分类性能提升。",
+        "此外，域适应中的权重选择很关键。若源域和目标域的类别比例不同，等权重的边缘对齐会强行让两域总质量相等，可能扭曲类别结构。此时可以考虑类别加权的 OT、部分传输或非平衡 OT，但这些方法仍然需要验证。不要把「用了最优传输」本身当作方法有效的证据。"
+      ],
+      "formula": "\\tilde{X}_s=T Y_t,\\qquad T=\\mathrm{diag}(a)^{-1}P",
+      "caption": "X_s 是源域特征矩阵；Y_t 是目标域特征矩阵；P 是源域到目标域的传输计划；a 是源域权重向量；diag(a) 是以 a 为对角元的矩阵；T 是行归一化的重心映射；tilde{X}_s 是变换后的源域特征。公式与颜色迁移完全相同，区别只在特征含义和下游任务。分类器需要在 tilde{X}_s 与源标签上训练，再在目标域特征上评估。"
+    },
+    {
+      "title": "合成实验：从 RGB 到二维特征",
+      "paragraphs": [
+        "代码分两部分。第一部分构造源、目标两组三维 RGB 点，源围绕暖色中心，目标围绕冷色中心。用 ot.emd 求计划，再用 P 除以 a 得到重心映射，打印映射后的行和、加权均值误差和颜色变化幅度。你应该看到每一行和为 1，映射后按源权重加权的均值与目标加权均值一致，且每个源点的颜色都发生了非零移动。代码还会创建一个三维散点图对象，但不调用 show，适合在无显示环境中运行。",
+        "第二部分构造二维源域与目标域：源域有两个带标签的簇，目标域也有两个簇，但各簇平移量略有不同。我们假装目标标签未知，只用于最终评估。代码在原始源特征和重心映射后的源特征上分别训练最近质心分类器，打印两次准确率。这个实验的目的是展示流程与诊断，不是证明某种域适应方法优越。若准确率没有提升，可能是簇的结构在映射中被扭曲，或目标域与源域的类别几何不一致；这正好说明需要更细的模型假设。",
+        "所有断言都检查接口语义：计划的行和、列和、映射的行和、输出范围、准确率在 0 到 1 之间。没有任何断言声称重心映射一定改善分类，也没有使用真实图片数据。读者可以把随机种子改掉，观察结果波动；如果结论对种子极其敏感，就不应该把它写成稳定现象。"
+      ]
+    }
+  ],
+  "lab": "transport",
+  "labTask": "拖动源点质量，观察运输矩阵行和与列和，并切换绝对距离和平方距离。这个浏览器实验只求平衡一维 OT；本章扩展模型由下面的 Python 示例验证。",
+  "code": "import numpy as np\nimport ot\nimport matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\n\nnp.random.seed(4)\nn = 120\nm = 140\nX = np.clip(np.random.normal([0.75, 0.35, 0.25], [0.10, 0.12, 0.10], size=(n, 3)), 0.0, 1.0)\nY = np.clip(np.random.normal([0.20, 0.45, 0.85], [0.12, 0.10, 0.10], size=(m, 3)), 0.0, 1.0)\na = np.ones(n) / n\nb = np.ones(m) / m\nM = ot.dist(X, Y, metric='sqeuclidean')\nP = ot.emd(a, b, M)\nTmap = P / a[:, None]\nXmap = Tmap @ Y\nprint('颜色计划行和最大误差:', round(float(np.abs(P.sum(axis=1) - a).max()), 12))\nprint('颜色计划列和最大误差:', round(float(np.abs(P.sum(axis=0) - b).max()), 12))\nprint('重心映射行和范围:', round(float(Tmap.sum(axis=1).min()), 8), round(float(Tmap.sum(axis=1).max()), 8))\nprint('映射后坐标范围:', round(float(Xmap.min()), 6), round(float(Xmap.max()), 6))\nassert P.shape == (n, m)\nassert np.allclose(P.sum(axis=1), a, atol=1e-9)\nassert np.allclose(P.sum(axis=0), b, atol=1e-9)\nassert np.allclose(Tmap.sum(axis=1), np.ones(n), atol=1e-9)\nassert np.all(Xmap >= 0.0) and np.all(Xmap <= 1.0)\n\nsource_mean = np.sum(a[:, None] * X, axis=0)\ntarget_mean = np.sum(b[:, None] * Y, axis=0)\nmapped_mean = np.sum(a[:, None] * Xmap, axis=0)\nprint('源加权均值:', np.round(source_mean, 6))\nprint('目标加权均值:', np.round(target_mean, 6))\nprint('映射后加权均值:', np.round(mapped_mean, 6))\nassert np.allclose(mapped_mean, target_mean, atol=1e-9)\nassert np.linalg.norm(mapped_mean - target_mean) < np.linalg.norm(source_mean - target_mean)\nprint('平均颜色移动距离:', round(float(np.mean(np.linalg.norm(Xmap - X, axis=1))), 6))\nassert np.mean(np.linalg.norm(Xmap - X, axis=1)) > 0\n\nrng = np.random.default_rng(5)\nns = 60\nXs = np.vstack([rng.normal([-1.0, 0.0], 0.35, (ns, 2)), rng.normal([1.0, 0.0], 0.35, (ns, 2))])\nys = np.r_[np.zeros(ns), np.ones(ns)]\nXt = np.vstack([rng.normal([-0.6, 1.2], 0.35, (ns, 2)), rng.normal([1.2, 1.2], 0.35, (ns, 2))])\nyt = np.r_[np.zeros(ns), np.ones(ns)]\nasrc = np.ones(2 * ns) / (2 * ns)\natgt = np.ones(2 * ns) / (2 * ns)\nP2 = ot.emd(asrc, atgt, ot.dist(Xs, Xt, metric='sqeuclidean'))\nT2 = P2 / asrc[:, None]\nXsmap = T2 @ Xt\n\ndef centroid_accuracy(Xtr, ytr, Xte, yte):\n    c0 = Xtr[ytr == 0].mean(axis=0)\n    c1 = Xtr[ytr == 1].mean(axis=0)\n    d0 = np.sum((Xte - c0) ** 2, axis=1)\n    d1 = np.sum((Xte - c1) ** 2, axis=1)\n    pred = (d1 < d0).astype(int)\n    return float(np.mean(pred == yte))\n\nacc_before = centroid_accuracy(Xs, ys, Xt, yt)\nacc_after = centroid_accuracy(Xsmap, ys, Xt, yt)\nprint('域适应对齐前准确率:', round(acc_before, 4))\nprint('域适应对齐后准确率:', round(acc_after, 4))\nprint('注意：目标标签仅用于评估，源标签用于训练，代码不保证对齐会提升准确率。')\nassert np.allclose(T2.sum(axis=1), np.ones(2 * ns), atol=1e-9)\nassert 0.0 <= acc_before <= 1.0\nassert 0.0 <= acc_after <= 1.0\n\nfig, ax = plt.subplots(figsize=(6, 3))\nax.scatter(X[:, 0], X[:, 1], c=X, label='source')\nax.scatter(Y[:, 0], Y[:, 1], c=Y, label='target')\nax.scatter(Xmap[:, 0], Xmap[:, 1], c=Xmap, marker='x', label='mapped')\nax.legend()\nprint('图像对象已创建:', fig is not None)\nfig.savefig('12-color-transfer.png', dpi=170, bbox_inches='tight')\nprint('结果图已保存：12-color-transfer.png')\n",
+  "codeNotes": "颜色部分的 P 是一个真正的耦合：行和等于 a，列和等于 b。Tmap=P/a[:,None] 把每一行归一化，使每个源点得到一组对目标点的条件权重；Xmap=Tmap@Y 就是这些目标点的加权平均。因此映射后的加权均值精确等于目标加权均值，这是边缘约束的代数结果，不是巧合。映射坐标仍在 [0,1] 内，因为目标点都在该范围内，凸组合不会越界。域适应部分的准确率只用于观察；centroid_accuracy 训练两个类均值并做最近质心预测。对齐后是否提升取决于数据结构，代码不对此下断言。域适应例子使用了评估目标点的无标签特征来构造计划，属于转导式演示；它没有声称在未见目标样本上获得泛化提升。脚本会在当前目录保存 12-color-transfer.png，可直接打开查看。",
+  "pitfalls": [
+    "重心映射除以 b 而不是 a。除以 b 会把目标权重当成源权重，行和不再为 1，映射没有逐点解释。",
+    "把映射后的点当作目标样本。映射后的加权均值等于目标均值，但经验分布一般不同；需要目标分布时应直接使用计划或重新采样。",
+    "认为 OT 对齐会保持类标签。传输只看特征与权重，类别信息没有进入目标，对齐可能混合类别。",
+    "忘记 RGB 边界。凸组合仍在目标凸包内，但颜色空间变换或超出原始范围时可能越界，应显式裁剪或检查。",
+    "用未归一化的权重做 ot.emd。POT 要求两边总质量一致；总质量不同时应先归一化或改用非平衡版本，并说明你改变了问题。",
+    "把一次随机数据的准确率提升当作方法结论。样本小、种子敏感，必须用目标域验证集和多次运行评估。"
+  ],
+  "quiz": {
+    "question": "给定传输计划 P 和源权重 a，重心映射的每个源点新坐标怎么算？",
+    "options": [
+      "用每列除以 b_j，再对源点加权平均",
+      "用每行除以 a_i 得到条件权重，再对目标点加权平均",
+      "直接取 P 中每行的最大值对应的目标点",
+      "把 P 与目标点矩阵相乘后再除以目标权重"
+    ],
+    "answer": 1,
+    "explanation": "重心映射先把每个源点的出发质量归一化：T_ij=P_ij/a_i，使每行和为 1；然后用 T_ij 对目标点 y_j 加权平均，得到该源点的新坐标。除以 b 会归一化目标端，不是逐源点的条件分配；取最大值会退化成硬匹配，丢失计划信息。"
+  },
+  "exercise": {
+    "question": "证明重心映射满足按源权重 a 加权的均值等于按目标权重 b 加权的目标均值。再说明什么条件下映射后的经验分布恰好等于目标经验分布。",
+    "answer": "令每个正质量源点的映射为 x̃_i=Σ_j P_ij y_j/a_i，则 Σ_i a_i x̃_i=Σ_j(Σ_i P_ij)y_j=Σ_j b_j y_j。这只依赖列边缘约束，与最优性无关。一个保证映射后分布恰等于目标的充分条件是：每行质量全部送向一个目标位置，并且到各目标的质量合计为 b_j；不要求一一对应，多个源点可以映射到同一目标。例如两个质量各 0.5 的源点都送往唯一的单位质量目标，也能精确推前。相反，一行把质量分给不同目标坐标时，重心一般落在它们之间，因此确定性均值映射通常丢失目标分布的离散形状。"
+  },
+  "references": [
+    {
+      "title": "POT 官方域适应模块文档",
+      "url": "https://pythonot.github.io/gen_modules/ot.da.html"
+    },
+    {
+      "title": "POT 官方示例总览（含颜色迁移与域适应示例）",
+      "url": "https://pythonot.github.io/auto_examples/index.html"
+    },
+    {
+      "title": "POT 用户指南",
+      "url": "https://pythonot.github.io/user_guide.html"
+    }
+  ],
+  "plot": {
+    "src": "assets/plots/12-color-transfer.png",
+    "caption": "同章 Python 的真实输出：RGB 合成颜色点的 R-G 平面投影。点的颜色是其实际 RGB，叉号为重心映射后的颜色；第三个通道通过颜色表达。"
+  }
+}
