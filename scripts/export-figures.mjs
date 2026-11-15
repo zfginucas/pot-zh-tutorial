@@ -14,7 +14,7 @@ for(const name of fs.readdirSync(path.join(root,'content')).filter(n=>n.endsWith
     if(!html)continue;
     const svg=html.match(/<svg[\s\S]*?<\/svg>/)?.[0];if(!svg)continue;
     const filename=`${lesson.id}-${key}.svg`;
-    fs.writeFileSync(path.join(out,filename),svg.replace('<svg ','<svg xmlns="http://www.w3.org/2000/svg" '));
+    const dimensions=svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);let standalone=/<svg[^>]*\sxmlns=/.test(svg)?svg:svg.replace('<svg ','<svg xmlns="http://www.w3.org/2000/svg" ');if(dimensions)standalone=standalone.replace('<svg ',`<svg width="${dimensions[1]}" height="${dimensions[2]}" `);fs.writeFileSync(path.join(out,filename),standalone);
     const caption=html.match(/<figcaption>([\s\S]*?)<\/figcaption>/)?.[1]?.replace(/<[^>]*>/g,'')||'';
     manifest[lesson.id][key]={filename,caption};
   }

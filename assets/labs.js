@@ -1,3 +1,4 @@
+import {mountFGW,mountChord} from './optimization-labs.js';
 import {mountGeneLab} from './gene-lab.js';
 import {uniform,costMatrix,cost,residual,entropy,exact1D,sinkhorn,sliced,structureMatch} from './math.js';
 const green='#26786b',orange='#d7834d',ink='#29433a';
@@ -14,8 +15,10 @@ export function transportSVG(P,x,y,a,b){let body=axis();P.forEach((r,i)=>r.forEa
   return svg(body,'一维运输计划：上方为源分布，下方为目标分布，连线粗细代表运输质量，横轴为实际位置');
 }
 export function heroFigure(){const a=[.55,.45],b=[.25,.35,.4],x=[.12,.6],y=[.22,.65,.9],P=exact1D(x,y,a,b);return transportSVG(P,x,y,a,b);}
-export const labNames={transport:'01 · 搬运与耦合',sinkhorn:'02 · 熵与迭代',interpolation:'03 · 分布如何移动',sliced:'04 · 投影与切片',structure:'05 · 形状与结构',gene:'06 · 基因空间分布'};
+export const labNames={transport:'01 · 搬运与耦合',sinkhorn:'02 · 熵与迭代',interpolation:'03 · 分布如何移动',sliced:'04 · 投影与切片',structure:'05 · 形状与结构',gene:'06 · 基因空间分布',fgw:'07 · FGW逐步求解',chord:'08 · Chord控制方向'};
 export function mountLab(el,type='transport'){
+  if(type==='fgw'){mountFGW(el);return;}
+  if(type==='chord'){mountChord(el);return;}
   if(type==='gene'){mountGeneLab(el);return;}
 
   if(type==='transport'||type==='sinkhorn'){

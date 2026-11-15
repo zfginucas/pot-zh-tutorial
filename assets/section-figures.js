@@ -1,3 +1,6 @@
+import {paperFigure} from './paper-figures.js';
+import {spatialFigure} from './spatial-figures.js';
+import {chordFigure} from './chord-figures.js';
 /*
  * Original, section-specific teaching figures. All numeric examples are either
  * hand-computable or explicitly marked as schematic; no published image is used.
@@ -431,6 +434,9 @@ const SECTION_FIGURES = new Map([
 
 export function sectionFigure(chapterId, sectionIndex, figureSpec) {
   if (figureSpec && typeof figureSpec === 'object') {
+    if (figureSpec.type?.startsWith('paper-')) return paperFigure(figureSpec);
+    if (figureSpec.type?.startsWith('spatial-')) return spatialFigure(figureSpec);
+    if (figureSpec.type?.startsWith('chord-')) return chordFigure(figureSpec);
     if (figureSpec.type === 'pipeline') return pipeline(figureSpec);
     if (figureSpec.type === 'patent-flow') return patentFlow(figureSpec);
     if (figureSpec.type === 'gene-distribution') return geneDistribution(figureSpec);

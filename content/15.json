@@ -1,128 +1,555 @@
 {
   "id": "15",
   "slug": "applications-research",
-  "title": "近年顶会：最优传输怎样进入真实任务",
-  "subtitle": "从脑图对齐、医学重建到分子生成与细胞动态，OT 在系统中究竟做哪一步？",
+  "title": "五篇顶会论文：从目标函数到更新与结果",
+  "subtitle": "逐篇拆解变量、约束与求解，用十张数值图看清 OT 实际做了哪一步。",
   "stage": "研究专题",
-  "minutes": 65,
-  "prerequisites": ["耦合、地面成本与边缘约束", "FGW 与非平衡传输", "基本的生成模型与研究评估概念"],
-  "goals": ["看懂 OT 作为匹配器、训练损失、配对机制与动态几何的不同用途", "用输入、质量、成本、输出四件事拆解一篇应用论文", "区分论文实验结论、教程类比与尚未验证的应用推断", "根据官方来源追踪 2025—2026 年正式主会论文并设计最小复现"],
+  "minutes": 75,
+  "prerequisites": [
+    "耦合、地面成本与边缘约束",
+    "熵正则与 FGW",
+    "梯度下降与基本生成模型"
+  ],
+  "goals": [
+    "区分内层计划变量与外层网络参数",
+    "读懂五篇方法的关键目标与更新步骤",
+    "用图中数字核验每项损失与读出结果",
+    "识别教学切片与完整模型的边界"
+  ],
   "sections": [
     {
-      "title": "先画系统图：OT 可能住在四个不同位置",
+      "title": "读图前：先找出论文真正优化的变量",
       "paragraphs": [
-        "读应用论文时，先别把所有箭头都叫作“搬运”。OT 可以直接输出两组对象的对应矩阵，可以只作为比较预测分布与真实分布的损失，也可以为神经网络安排训练样本对，或者定义状态与总量共同变化的连续时间路径。它们共享几何思想，但输出形状、训练代价与验证方式都不同。若论文最终输出的是速度网络，就不能期待一个 ot.emd 调用完整复现它；若最终只输出分布距离，也不能凭这个标量恢复唯一的逐对象对应关系。",
-        "建议给每篇论文写一张四栏卡片：点是什么、质量是什么、代价惩罚什么、最终要交付什么。图匹配里的点可能是脑区，分子任务里的点可能是一个分子的潜在表示，细胞任务里的点常是一条高维表达向量。这里的“位置”未必是物理坐标，“质量”也未必是物质重量。例如以每个图像样本为一个单位概率点，并不是说把一幅 MRI 的像素亮度直接当作流体。把对象层次弄错，公式即使看起来熟悉，解释也会偏离真实任务。",
-        "本章选取五篇截至 2026-11-14 已能在官方论文集核实的主会论文：NeurIPS 2025 三篇、ICML 2026 一篇和 ICLR 2026 一篇。它们分别对应脑图匹配、医学重建、连续条件生成、单细胞时间建模和非平衡动态。会议与年份用于确认来源，不用于替代证据。下面会明确哪些是作者报告的实验，哪些是本教程为了帮助理解而设计的例子；完整标题、正文和代码入口列在章末。"
+        "这五篇都用 OT，优化的对象却不同。先看下表，再逐篇阅读“目标是什么”和“怎样更新”。每篇两张数值图，图中小例都可用章末代码核验。",
+        "论文原式注明式号；缩小后的数值例注明固定了哪些变量。案例覆盖 2025—2026 年正式主会，原模型实验范围放在每篇最后一句。"
       ],
-      "figure": {"type":"pipeline","labels":[["任务里的对象","脑区 / 图像 / 分子 / 细胞"],["选择 OT 的职责","匹配 / 损失 / 配对 / 动态"],["验证真正的输出","计划 / 图像 / 性质 / 轨迹"]],"caption":"原创阅读框架。先确定 OT 在系统中负责什么，再判断应检查边缘、重建指标、条件满足度还是动态预测。"}
+      "table": {
+        "headers": [
+          "论文 / 应用",
+          "内层或几何对象",
+          "真正学习的变量",
+          "读出的结果"
+        ],
+        "rows": [
+          [
+            "ULOT / 脑图对齐",
+            "非负对应计划 P",
+            "预测计划网络的 θ",
+            "脑区软对应与信号迁移"
+          ],
+          [
+            "KIDOT / 医学重建",
+            "整条重建路径与终端 W₁",
+            "重建网络 ϕ、势网络 η",
+            "符合测量约束的图像"
+          ],
+          [
+            "A2A-FM / 条件迁移",
+            "批内配对置换 π",
+            "条件速度网络 θ",
+            "指定条件之间的迁移"
+          ],
+          [
+            "LGP-OT / 时序细胞",
+            "每时点的群体耦合 P_t",
+            "解码器 θ、变分参数 Ψ",
+            "未测时点的表达分布"
+          ],
+          [
+            "WFR-FM / 质量动态",
+            "WFR 半耦合与条件路径",
+            "速度 θ、增长率 ϕ",
+            "状态与质量的联合演化"
+          ]
+        ]
+      }
     },
     {
-      "title": "ULOT · NeurIPS 2025：把脑图匹配的求解成本摊到训练中",
+      "title": "ULOT ①：一张脑区对应表，怎样变成可优化的损失",
       "paragraphs": [
-        "文献 A：Unsupervised Learning for Optimal Transport plan prediction between unbalanced graphs。作者训练一个带图编码与交叉注意力的网络，输入两张图及 FUGW 参数，直接预测非负计划。训练目标使用 FUGW 损失，不需要先为每对图制作监督匹配标签。正式论文报告了合成图与 IBC 皮层 fMRI 图实验，也考察把预测计划用作经典求解器初始值的做法。这里是把反复求解的工作部分转移到预训练阶段，不能只报一次前向速度而忽略训练成本。",
-        "教学拆解：设每个节点是一个脑区。节点特征描述功能响应，图内关系描述脑区之间的结构；质量权重描述节点的重要程度。一个脑区在另一个人的大脑中可能对应多个小区，直接要求硬一一匹配太苛刻。FUGW 用软对应同时考虑特征相似与内部关系，并用边缘惩罚允许重新分配匹配质量。注意，节点数量不同本身不强迫我们采用非平衡模型；选择软边缘还需要说明为什么实际任务允许某些对应质量增减。",
-        "证据与复现：先重现小型合成图，固定同一目标和参数，比较网络计划、经典求解器及网络热启动后的目标值和总耗时；再进入脑数据。论文的 fMRI 激活迁移图是定性展示，不能把视觉相似直接解释成已验证的临床能力。作者也报告预测误差和显存限制，因此高精度任务仍应检查求解器细化后的结果。若换一种图或采样方式，要重新测试分布变化下的泛化。本文不把网络预测自动称为全局最优解。"
+        "输入两张图：节点特征 F₁、F₂，内部关系 D₁、D₂，以及参考节点质量 a、b。Pᵢⱼ 表示节点 i 向节点 j 的对应质量，约束只有非负，边缘通过罚项控制。",
+        "特征项问“匹配对象像不像”，结构项问“匹配后的两对节点关系是否保留”。α 权衡这两项；ρ 控制偏离参考质量的代价。该论文的边缘罚项作用于张量积，不能换成普通边缘 KL。",
+        "图中两节点特征均为 [0,1]，内部距离分别为 1、2。完整对应虽保留特征，结构仍有误差；把计划质量减半可降低结构项，却会增加边缘罚项。"
       ],
-      "figure": {"type":"pipeline","labels":[["两个人的脑图","节点特征 + 内部关系"],["ULOT 预测计划","以 FUGW 损失训练"],["迁移或求解器细化","检查误差与训练成本"]],"caption":"原创方法示意。神经网络近似计划可减少重复求解的开销，但“预测快”与“精确最优”需要分别评价。"}
+      "figure": {
+        "type": "paper-ulot-terms",
+        "title": "ULOT ①：一张脑区对应表，怎样变成可优化的损失",
+        "caption": "逐项代入 ULOT 正文式 (1)—(3) 的两节点小例。横条为已乘 α、ρ 的项；总数是三项之和，不是论文实验结果。"
+      },
+      "formulas": [
+        {
+          "latex": "F(P)=\\sum_{ij}\\|F_{1i}-F_{2j}\\|^2P_{ij},\\quad G(P)=\\sum_{ijkl}(D_{1ik}-D_{2jl})^2P_{ij}P_{kl}",
+          "caption": "F 比较节点特征，G 比较两对节点的内部关系；G 关于 P 是二次项。"
+        },
+        {
+          "latex": "K(P)=\\mathrm{KL}(r\\otimes r\\|a\\otimes a)+\\mathrm{KL}(c\\otimes c\\|b\\otimes b),\\quad r=P\\mathbf1,\\ c=P^\\top\\mathbf1",
+          "caption": "r、c 为实际边缘；采用广义 KL，包含质量差修正项。"
+        },
+        {
+          "latex": "\\mathcal L_{\\alpha,\\rho}(P)=(1-\\alpha)F(P)+\\alpha G(P)+\\rho K(P),\\qquad P\\ge0",
+          "caption": "对应正文式 (1)—(3)。图中 α=0.5、ρ=0.2；两边参考质量均为 (0.5,0.5)。"
+        }
+      ],
+      "check": {
+        "question": "为什么 P₃ 的结构项更小，却不能据此认定它比 P₁ 更好？",
+        "answer": "结构项随计划质量二次缩放；若不计边缘罚项，直接取零计划就能把它压成零。必须比较完整目标。"
+      },
+      "sources": [
+        {
+          "title": "A · ULOT 正式全文（方法 §2，实验 §3，局限 §4）",
+          "url": "https://proceedings.neurips.cc/paper_files/paper/2025/file/873fd89b3e4db1f6242c2333673e104d-Paper-Conference.pdf"
+        }
+      ]
     },
     {
-      "title": "KIDOT · NeurIPS 2025：图像看起来像，还要符合测量物理",
+      "title": "ULOT ②：优化网络 θ，预测计划 Pθ",
       "paragraphs": [
-        "文献 B：Towards Prospective Medical Image Reconstruction via Knowledge-Informed Dynamic Optimal Transport。KIDOT 研究测量数据到高质量医学图像的重建，把成像前向算子放进动态传输的成本和演化方程。作者在模拟 MRI、真实前瞻采集 MRI 及临床 CT 数据上实验；论文结论同时指出对已知前向模型的依赖，以及数值积分带来的开销。这里的 OT 对象是测量与图像的样本分布，不能把它简化成普通的像素直方图颜色迁移。",
-        "教学直觉：设扫描仪只给出不完整测量 y，候选图像为 x，物理算子 A 告诉我们“若真实图像是 x，机器应测到什么”。即使生成结果很像训练集，若 A(x) 与实际 y 不一致，它仍可能是另一个病例的合理图像。因此目标分布对齐与数据一致性承担两项不同责任：前者约束图像总体外观，后者把输出系回当前输入。论文把这种一致性要求放在演化路径中；下式只是解释物理残差的教学表达，不是完整 KIDOT 训练目标。",
-        "复现应先验证前向算子与伴随算子、测量噪声和采样掩码，再比较同样输入上的重建质量。来源论文对存在空间错位的前瞻数据采用分布指标，读者应进一步问：指标改善是否对应输入个体的细节更准确？本教程建议额外保留物理残差与失真检查，把它们与分布相似度并列报告。这是评估建议，不是对该论文已经完成额外验证的主张。最小实验可从公开 fastMRI 设置开始，不应将示例结果外推成可直接诊断的系统。"
+        "经典求解器为每对图优化 P；ULOT 则在很多图对和参数上优化 θ，让网络直接输出 Pθ。损失从 Pθ 反向传到 θ，不需要提供“标准答案计划”作监督。",
+        "图中只看计划族 P(s)=sI/2。s=1 处 dL/ds=0.5；取学习率 η=0.2，一步下降得到 s_new=1−0.2×0.5=0.9。该族最小点约为 0.732。",
+        "训练后输入新图对即可预测计划；必要时再作为经典求解器初值。脑信号迁移按目标边缘归一化 PᵀF₁。论文在合成图与 fMRI 图上评估，激活迁移图属于定性展示。"
       ],
-      "formula": "r_{\\mathrm{physics}}(x;y)=\\|A(x)-y\\|,\\qquad A:\\text{图像空间}\\to\\text{测量空间}",
-      "caption": "教学残差：A 是已知的测量前向算子，y 是当前实际测量，x 是候选重建。它检查“是否解释了这份测量”，与“总体像不像图像分布”不同。",
-      "figure": {"type":"pipeline","labels":[["不完整测量 y","当前病例的实际采样"],["物理约束的动态路径","同时参考高质量图像分布"],["重建 x","回算 A(x)，核对 y"]],"caption":"原创逆问题示意。图像分布提供先验，测量物理把结果与具体输入连接起来；两者不能互相替代。"}
+      "figure": {
+        "type": "paper-ulot-learning",
+        "title": "ULOT ②：优化网络 θ，预测计划 Pθ",
+        "caption": "原文式 (4) 是对 θ 的期望风险最小化。曲线只限制 P=sI/2，展示梯度方向；并非完整 ULOT 的全局解。"
+      },
+      "formulas": [
+        {
+          "latex": "\\min_\\theta\\ \\mathbb E_{G_1,G_2,\\alpha,\\rho}\\mathcal L_{\\alpha,\\rho}(P_\\theta(G_1,G_2;\\alpha,\\rho)),\\quad \\theta\\leftarrow\\theta-\\eta\\nabla_\\theta\\mathcal L",
+          "caption": "正文式 (4)；图网络与交叉注意力产生对应关系，重加权头控制质量。"
+        },
+        {
+          "latex": "L(s)=0.25s^2+0.4\\{s^2\\log(s^2)-s^2+1\\},\\qquad s^*=e^{-0.3125}",
+          "caption": "将上一图的 P=sI/2 代入完整目标后得到，0log0 取 0。"
+        },
+        {
+          "latex": "s_{\\mathrm{new}}=s-\\eta L^\\prime(s)=1-0.2\\times0.5=0.9",
+          "caption": "η=0.2 是本图选择的梯度下降步长，不是原论文所有网络参数的统一训练配置。"
+        }
+      ],
+      "algorithm": [
+        "抽取两张图和 (α,ρ)，由图网络输出非负 Pθ。",
+        "计算特征、结构与边缘张量 KL 三项；对 θ 反向传播。",
+        "在新图上预测 P；读出匹配或按 Pᵀ 转移节点信号。"
+      ],
+      "check": {
+        "question": "这里的 s* 证明 ULOT 找到了全局最优计划吗？",
+        "answer": "没有。它只在 P=sI/2 这条计划族内最优；完整网络还改变对应形状，原问题含非凸结构项。"
+      },
+      "sources": [
+        {
+          "title": "A · ULOT 正式全文（方法 §2，实验 §3，局限 §4）",
+          "url": "https://proceedings.neurips.cc/paper_files/paper/2025/file/873fd89b3e4db1f6242c2333673e104d-Paper-Conference.pdf"
+        }
+      ]
     },
     {
-      "title": "A2A-FM · NeurIPS 2025：连续条件下，怎样安排训练配对",
+      "title": "KIDOT ①：物理约束与终端分布，各负责什么",
       "paragraphs": [
-        "文献 C：Pairwise Optimal Transports for Training All-to-All Flow-Based Condition Transfer Model。论文提出 A2A-FM，为连续条件下任意条件对之间的迁移设计样本配对成本，再用这些配对训练流模型。官方全文包含合成实验及分子性质优化；分子实验在表示空间中迁移，并评价性质满足与结构相似。论文的极限收敛结论依赖其假设与渐近过程，不能直接替换为“有限小批量下每对分子都达到精确 OT”。",
-        "教学拆解：假设一个样本有形状特征 x 和连续条件 c，例如一个候选分子的表示与某种可计算性质。不同条件几乎没有重复样本时，不能为每个精确的 c 单独估计一套稳定分布，再穷举所有条件对。训练机制需要在相邻条件之间共享信息。OT 在这里的重要作用是给训练找起点与终点的配对，而流网络学习的是沿这些配对走动的速度。迁移中的距离发生在选定表示空间，并不意味着真实化学键沿欧氏直线变化。",
-        "如何审计：将性质命中率、与原分子的相似度、有效分子比例及候选评估预算分开记录。性质提高却完全变成另一类分子，不符合“尽量保留原结构”的目标；表示空间很近却无法解码，也不能算成功。论文展示的计算性质指标不等于药效、毒性或实验可合成性。复现时先运行作者的合成分布设置，确认配对与条件输入，再严格沿用分子解码器、数据划分及评估预算。这里的四点代码仅说明为什么配对会改变流训练目标。"
+        "输入测量 y，已知前向算子 A；输出图像 x 应解释测量 A(x)≈y。仅满足这一条件仍可能有很多图像，因此还要使输出群体接近高质量参考分布 Q。",
+        "KIDOT 学习从测量分布 P 出发的重建路径。目标同时惩罚整条路径上的物理残差，以及终端分布与 Q 的 W₁ 距离；优化变量是生成路径的网络参数 ϕ。",
+        "图中缩为两个像素，A(x)=x₁+x₂，y=1。A、B 都在测量等值线上，却离参考图像不同远。这展示两项职责，未代替完整路径优化。"
       ],
-      "formula": "x_t=(1-t)x_0+t x_1,\\qquad u_t=x_1-x_0,\\qquad \\int_0^1\\|u_t\\|^2\\,dt=\\|x_1-x_0\\|^2",
-      "caption": "普通直线路径的教学例子：选择不同的端点耦合，会改变训练目标速度及平均路径能量。它不是 A2A-FM 特有成本的完整公式。",
-      "figure": {"type":"pipeline","labels":[["样本 x 与条件 c","连续条件可缺少重复样本"],["条件感知的 OT 配对","起点、终点与训练路径"],["学习迁移速度场","生成后检查性质与结构"]],"caption":"原创训练流程。OT 负责配对，流模型负责学习可用于新输入的连续迁移；选对端点并不自动验证生成样本。"}
+      "figure": {
+        "type": "paper-kidot-constraint",
+        "title": "KIDOT ①：物理约束与终端分布，各负责什么",
+        "caption": "KIDOT 式 (8) 的两种要求：蓝线为数据一致集；表格的终端 W₁ 采用欧氏地面度量 d(x,q)=‖x−q‖₂，故 A 行为 √0.18≈0.424。点残差不是完整路径代价 C。"
+      },
+      "formulas": [
+        {
+          "latex": "\\min_\\varphi\\ J(\\varphi)=C(\\varphi)+\\lambda W_1((T_\\varphi^1)_\\#P,Q)",
+          "caption": "正文式 (8)。Tϕ¹ 为路径终点映射，λ 控制终端分布约束。本教学图 W₁ 的地面度量为欧氏距离；路径物理残差仍使用式中 L₁ 范数。"
+        },
+        {
+          "latex": "C(\\varphi)=\\mathbb E_{y\\sim P}\\int_0^1\\|y-A(T_\\varphi^t(y))\\|_1\\,dt",
+          "caption": "C 约束沿途各状态，而不只约束最终图像。参考图像无需与每个真实测量成对。"
+        }
+      ],
+      "check": {
+        "question": "候选 A 的物理残差已经为零，为何还需要终端分布项？",
+        "answer": "测量可能欠定，同一测量对应多个图像。终端分布提供高质量图像先验，帮助在数据一致解之间选择。"
+      },
+      "sources": [
+        {
+          "title": "B · KIDOT 正式全文（方法 §3，实验 §4，局限 §5）",
+          "url": "https://proceedings.neurips.cc/paper_files/paper/2025/file/3a5b75ce6cbd3aaaa32d6e935ffc4cff-Paper-Conference.pdf"
+        }
+      ]
     },
     {
-      "title": "LGP-OT · ICML 2026：没有细胞轨迹，也能比较整个群体",
+      "title": "KIDOT ②：一条重建路径，怎样由两种更新力产生",
       "paragraphs": [
-        "文献 D：Modeling Temporal scRNA-seq Data with Latent Gaussian Process and Optimal Transport。正式 ICML 2026 论文使用潜在高斯过程描述时间变化，并用 OT 对齐生成与观测的细胞群体；还考虑细胞各自的潜在时间与细胞类型条件。实验评价缺失时点的插值、外推与数据稀疏情形。作者明确指出没有显式建模分支事件，且空间或多模态数据扩展仍有待研究。因此，这篇是时序单细胞应用，不能因为同样讨论细胞就称它已经完成空间转录组配准。",
-        "教学直觉：第 1 天测到一群细胞，第 3 天又测到另一群细胞，破坏式测序没有保留下每个细胞的连续录像。若模型生成第 2 天的分布，我们可以比较这个群体是否与留出的真实第 2 天群体接近，却不能仅凭分布匹配断定某个源细胞真正变成了某个目标细胞。OT 解决“群体如何对齐”的一部分，平滑时间先验与类型条件补充了动态假设。这里的点是表达向量，横轴上的潜在时间也不是组织切片的二维坐标。",
-        "最小复现先留出中间一个完整时点，而不是从每个时点随机留出一些细胞，避免把插值测试变成同分布插补。随后检查归一化、基因选择、降维和细胞类型标签在各划分中的使用权限。作者仓库提供数据设置与训练入口；本教程未训练原网络，不报告自有性能数字。复现实验需要同时看分布误差与模型对平滑性的依赖，对个体谱系或干预因果的解释另需独立证据。把低分布距离转述为“找到了真实命运”会越过现有观测的识别能力。"
+        "网络 Hϕ 参数化未知先验梯度；物理项 A* (A(x)−y) 直接由算子计算。用 Euler 步把二者相加，得到下一状态，重复 N 步产生终端图像。",
+        "图中当前状态为 (0.2,0.2)。物理修正与学习修正合并后，下一步为 (0.6,0.4)，同时满足 x₁+x₂=1。学习项还能沿数据一致集改变图像。",
+        "终端 W₁ 用 1-Lipschitz 势网络实现：势网络拉大可分辨差异，重建网络缩小差异。有模拟配对数据时再加监督项。论文考察 MRI/CT，结果依赖前向模型。"
       ],
-      "figure": {"type":"pipeline","labels":[["多个测量时点","各有一群表达向量"],["潜在时间模型 + OT","生成群体对齐观测群体"],["预测留出时点","群体吻合 ≠ 个体谱系"]],"caption":"原创观测模型示意。时点之间通常没有真实逐细胞配对，模型补入的动态假设应与直接观测区分。"}
+      "figure": {
+        "type": "paper-kidot-step",
+        "title": "KIDOT ②：一条重建路径，怎样由两种更新力产生",
+        "caption": "对应正文 Euler 离散化：固定一次中间状态与 Hϕ 值，仅演示一步数值更新；并未声称此常量网络完整重建了真实 MRI。"
+      },
+      "formulas": [
+        {
+          "latex": "x_{k+1}=x_k-\\Delta t\\,[A^*(A(x_k)-y)+H_\\varphi(x_k)]",
+          "caption": "正文 §3.3。A* 是伴随，Hϕ 是学习项；图中 Δt=0.5。"
+        },
+        {
+          "latex": "\\min_\\varphi\\max_{\\eta:\\ \\|f_\\eta\\|_{\\mathrm{Lip}}\\le1}\\ C(\\varphi)+\\lambda\\{\\mathbb E_P f_\\eta(T_\\varphi^1(y))-\\mathbb E_Qf_\\eta(x)\\}+\\gamma L_{\\mathrm{sup}}(\\varphi)",
+          "caption": "正文式 (9)—(12) 的等价势函数符号约定；η 是势网络参数，γ 是配对监督权重。先增大势函数差异，再下降更新 ϕ；无配对监督时 γ=0。"
+        }
+      ],
+      "algorithm": [
+        "固定重建网络，增加势函数对生成与参考分布的区分能力，并控制 Lipschitz 性。",
+        "展开物理项与 Hϕ 的 N 步更新，累积路径残差。",
+        "下降更新 ϕ；若有模拟配对，加入论文的监督损失。"
+      ],
+      "check": {
+        "question": "图中橙色增量为何可以一增一减，却不改变像素和？",
+        "answer": "其两个分量为 (0.1,−0.1)，和为零，沿测量等值线移动；一般学习项不必恰好在这个零空间里。"
+      },
+      "sources": [
+        {
+          "title": "B · KIDOT 正式全文（方法 §3，实验 §4，局限 §5）",
+          "url": "https://proceedings.neurips.cc/paper_files/paper/2025/file/3a5b75ce6cbd3aaaa32d6e935ffc4cff-Paper-Conference.pdf"
+        }
+      ]
     },
     {
-      "title": "WFR-FM · ICLR 2026：细胞既改变状态，也改变数量",
+      "title": "A2A-FM ①：配对成本怎样保留“要迁移的条件对”",
       "paragraphs": [
-        "文献 E：WFR-FM: Simulation-Free Dynamic Unbalanced Optimal Transport。作者在 Wasserstein–Fisher–Rao 几何下联合学习位移速度与增减质量的标量场。论文以合成数据及单细胞实验考察分布、总量和生长率的恢复，并讨论静态耦合计算、小批量近似与不确定性方面的限制。“simulation-free”描述训练策略，不意味着完整数据处理、求耦合或生成轨迹的每个阶段都不需要数值计算。",
-        "把普通守恒连续性方程与带源项方程并排看，意义会更清楚：速度 v 负责让质量在状态空间移动，增长率 g 负责在当前位置增加或减少质量。两组分布形状相似却总量翻倍时，单靠移动解释不了变化；反过来，群体数量相近也可能同时存在增殖和凋亡。若只把两端都归一化成 1，关于总量的约束就被拿掉了。下式是通用的动态质量平衡表达，帮助理解这两个角色，不是论文所有正则项与训练权重的展开。",
-        "生物解释需要额外谨慎：测到的细胞数翻倍，可能来自真实增殖，也可能是抽样比例或实验捕获效率改变。将增长场解释为生物学量之前，应说明质量如何校准，以及哪些先验或辅助观测约束了增长。复现可以先使用已知真实增长率的合成系统，同时报告归一化后的形状误差与总量误差；真实数据再增加参数、批量大小和时间间隔的敏感性分析。这些是本教程的评估建议，不能被理解为静态快照已唯一决定了潜在增殖机制。"
+        "每个批含样本 x 与连续条件 c。先优化批内置换 π，再训练速度网络。特别要看清：式 (11) 比较 c₁⁽ⁱ⁾ 与 c₁⁽π(i)⁾、c₂⁽ⁱ⁾ 与 c₂⁽π(i)⁾，不是要求起终条件 c₁=c₂。",
+        "图中数据距离喜欢交换两条记录：状态完全不动。可是交换也改变了原来记录对应的条件对。β 增大时，优化会优先保留这些条件对，即使状态需要多移动。",
+        "两个候选的总成本为 4β 与 18，在 β=4.5 处打平。该两记录例精确使用论文成本，但有限小批量不保证覆盖所有连续条件对。"
       ],
-      "formula": "\\partial_t\\rho_t+\\nabla\\!\\cdot(\\rho_t v_t)=g_t\\rho_t",
-      "caption": "ρ_t 是状态空间中的非负质量密度，v_t 是速度场，g_t 是每单位质量的增长率。g=0 对应质量守恒；非零源项允许质量随时间改变。",
-      "figure": {"type":"pipeline","labels":[["状态与总量快照","先说明质量如何校准"],["速度 v + 增长 g","移动与增减同时建模"],["预测群体演化","分别检查形状与总量"]],"caption":"原创动态非平衡示意。表达状态变化与群体总量变化是两个观测维度，不能用归一化后的形状指标替代总量检查。"}
+      "figure": {
+        "type": "paper-a2a-cost",
+        "title": "A2A-FM ①：配对成本怎样保留“要迁移的条件对”",
+        "caption": "正文式 (11) 的 N=2 特例。D 为数据平方差，B 为两批各自条件索引差之和；求解 D+βB 上的置换，总成本未除以 N。"
+      },
+      "formulas": [
+        {
+          "latex": "\\min_{\\pi\\in\\mathfrak S_N}\\sum_i\\left[\\|x_1^{(i)}-x_2^{\\pi(i)}\\|^2+\\beta\\left(\\|c_1^{(i)}-c_1^{\\pi(i)}\\|^2+\\|c_2^{(i)}-c_2^{\\pi(i)}\\|^2\\right)\\right]",
+          "caption": "A2A-FM 正文式 (11)。π 是当前批的离散优化变量；β 为固定权衡参数。"
+        }
+      ],
+      "table": {
+        "headers": [
+          "批记录 i",
+          "x₁⁽ⁱ⁾",
+          "c₁⁽ⁱ⁾",
+          "x₂⁽ⁱ⁾",
+          "c₂⁽ⁱ⁾"
+        ],
+        "rows": [
+          [
+            "1",
+            "0",
+            "0",
+            "3",
+            "1"
+          ],
+          [
+            "2",
+            "3",
+            "1",
+            "0",
+            "0"
+          ]
+        ]
+      },
+      "check": {
+        "question": "β 变大，是不是强迫模型只能在同一条件内迁移？",
+        "answer": "不是。它保留索引记录中的条件对。本例 β=6 选择条件 0→1 与 1→0，恰好都是跨条件迁移。"
+      },
+      "sources": [
+        {
+          "title": "C · A2A-FM 作者全文 HTML v4（方法 §3，实验 §5，讨论 §6）",
+          "url": "https://arxiv.org/html/2504.03188v4"
+        }
+      ]
     },
     {
-      "title": "把论文放回你的任务：先选可检验的问题",
+      "title": "A2A-FM ②：离散配对，怎样变成速度网络的监督信号",
       "paragraphs": [
-        "五个案例可以形成一张选型地图：需要图节点对应，先看 ULOT 类的计划预测；需要由测量还原图像，先定义物理算子与一致性；需要连续条件迁移，先检查条件如何进入配对和速度模型；需要补出未观测细胞群体，先定义时间划分；需要总量演化，再引入动态非平衡框架。模型复杂度应围绕缺失的信息增加，而不是因为某篇论文里出现 OT 就把整套网络搬来。一个小而可验证的基线常能先暴露最重要的建模矛盾。",
-        "同样一张计划，也可能被解释为对应、训练配对或总体质量流。解释越强，所需证据越多。低运输成本只说明在你设定的几何中便宜；它并不证明相同身份、相同功能或真实因果。对真实应用，可以先提出一个反例：若把所有标签随机置乱、把空间坐标打乱、让测量算子出错、或者改变捕获效率，方法应当怎样失效？把这些反例写入实验，是把漂亮的流程图转变成有证据的方法说明。",
-        "研究生的可执行路线是：先跑本章四点例子理解耦合如何影响路径，再从一篇作者仓库中复现最小合成实验，最后才接入真实数据。每一步都保留配置、输入、输出语义和失败记录。比较模型时同时报告一次训练成本、单次推断成本与重复任务总成本；比较生物结论时写清哪些来自直接观测，哪些由模型补足。下一章专门讨论空间转录组，那里会把“切片配准”“细胞定位”“空间特征基因”拆成不同任务。"
+        "配对 π 确定后，沿线段取随机时刻 t，得到训练位置 x_t；目标速度直接由端点差计算。训练 θ 是回归速度，不是再次把 π 当网络参数更新。",
+        "β=6 时，两条路径在 t=0.5 都到 x=1.5，但速度分别为 +3、−3。输入条件对不同，网络才能给同一位置不同速度；丢掉条件会产生矛盾监督。",
+        "训练后从源样本解速度 ODE 到目标条件，得到迁移样本。原论文用此机制做分子性质迁移；潜在表示中的短距离不自动保证真实药效。"
       ],
-      "figure": {"type":"pipeline","labels":[["先复现可手算例子","核对质量、单位、残差"],["再跑论文最小设置","固定数据与评估协议"],["最后做任务验证","用独立指标与失败对照"]],"caption":"原创复现路线。教程代码验证局部数学机制；复现论文还需要原数据、模型与训练协议；真实应用需要独立任务证据。"}
+      "figure": {
+        "type": "paper-a2a-field",
+        "title": "A2A-FM ②：离散配对，怎样变成速度网络的监督信号",
+        "caption": "按上一图的两个最优置换构造线性路径，对应论文式 (9)、(10) 与算法 1。交叉位置的速度依赖条件对，不能只画无条件速度场。"
+      },
+      "formulas": [
+        {
+          "latex": "x_t=(1-t)x_1^{(i)}+t x_2^{\\pi(i)},\\qquad u_t=x_2^{\\pi(i)}-x_1^{(i)}",
+          "caption": "对固定端点的线性路径，目标速度可直接计算。"
+        },
+        {
+          "latex": "\\min_\\theta\\ \\mathbb E_{i,t}\\|v_\\theta(x_t,t\\mid c_1^{(i)},c_2^{\\pi(i)})-u_t\\|^2",
+          "caption": "正文式 (10)，写成样本期望。优化 θ 后，在推断阶段解 dx/dt=vθ。"
+        }
+      ],
+      "algorithm": [
+        "从数据独立抽两批，先用式 (11) 求置换 π。",
+        "采样 t，计算 x_t 与端点差 u_t，回归条件速度网络。",
+        "给定新源样本与条件对，积分速度 ODE，解码并评价结果。"
+      ],
+      "check": {
+        "question": "若两个条件对的预测速度都为 0，平均平方误差是多少？",
+        "answer": "目标为 +3 与 −3，所以平均误差是 (9+9)/2=9。分别学习正、负速度可降低它。"
+      },
+      "sources": [
+        {
+          "title": "C · A2A-FM 作者全文 HTML v4（方法 §3，实验 §5，讨论 §6）",
+          "url": "https://arxiv.org/html/2504.03188v4"
+        }
+      ]
     },
     {
-      "title": "四点实验：端点相同，配对不同，中途群体也会不同",
+      "title": "LGP-OT ①：没有逐细胞配对，如何把误差传回时间模型",
       "paragraphs": [
-        "下面给出一个独立教学实验，不训练或复现上述五个神经网络。源点位于 0、1、4、5，目标点位于 6、2、7、3，二者只是整体平移 2 后换了编号。我们分别用乘积计划独立配对和平方距离 OT 计划安排起终点，再让每对点沿直线移动。两种方案都满足同样的源与目标边缘，但平均路径能量与中点分布并不相同。这说明只给出两个时点的群体，不足以指定唯一的中途演化。",
-        "为了避免只看图说话，代码会核对边缘、平方运输成本和中点均值。OT 成本应为 4，独立配对为 12.5；两者的中点均值同为 3.5，但方差不同。因此均值相同远不足以保证分布相同。OT 在所选成本下偏好更省移动的路径，这是一个明确的建模选择；它没有额外的生物观测，因此不能自称恢复了真实细胞谱系。你还可以改用更偏好某种细胞特征的成本，观察同一边缘下的配对如何改变。"
+        "高斯过程产生潜在均值和时间变化的噪声尺度；解码器 hθ 生成表达向量。每个时点把观测群体与生成群体做正则 OT，耦合在同一时点建立。",
+        "A_f 与 A_ς 决定时间函数的基系数；φ_f(t)、φ_ς(t) 把时点变成基函数向量。两者先生成潜在均值与噪声尺度，再由解码器变成表达。",
+        "图中固定一个时点、一个平移系数 Φ。生成 [0,2]+Φ，对齐观测 [1,3]。Φ=0 时两个生成点的梯度各为 −1；梯度下降使它们向右移动，再经解码器传回时间模型。",
+        "这与跨时点逐细胞追踪不同。模型最终预测未测时点的群体分布；观测没有给出真实个体谱系。"
       ],
-      "figure": {"type":"pipeline","labels":[["同一对端点分布","起点与终点边缘固定"],["两种不同耦合","独立配对 / 便宜配对"],["不同中途分布","比较均值、方差与能量"]],"caption":"原创实验设计。末端分布的拟合不唯一决定中途路径，OT 成本提供了额外偏好。"}
+      "figure": {
+        "type": "paper-lgp-population",
+        "title": "LGP-OT ①：没有逐细胞配对，如何把误差传回时间模型",
+        "caption": "LGP-OT 正文式 (1)、(6) 的一维平移切片。图中固定 Φ=b，并把内层 γ 取零展示精确耦合；完整模型的时序 GP 与解码器均未被这张切片替代。"
+      },
+      "formulas": [
+        {
+          "latex": "z_i(t;\\Phi)=A_f\\phi_f(t)+\\exp(A_\\varsigma\\phi_\\varsigma(t))\\odot\\xi_{i,t},\\qquad \\hat x_{t,i}=h_\\theta(z_i(t;\\Phi))",
+          "caption": "正文式 (6)。A_f、A_ς 是潜在均值与对数噪声尺度的基系数矩阵；φ_f(t)、φ_ς(t) 是时间基函数向量；exp 和 ⊙ 分别逐元素指数与逐元素乘法。ξ_{i,t} 是细胞 i、时点 t 的标准高斯噪声，hθ 为解码器。"
+        },
+        {
+          "latex": "W_{2,\\gamma}^2(\\rho_t,\\hat\\rho_t)=\\min_{P_t\\in U(a_t,b_t)}\\langle P_t,C_t\\rangle+\\gamma\\mathrm{KL}(P_t\\|a_tb_t^\\top)",
+          "caption": "正文式 (1) 的离散 p=2 写法。a_t、b_t 是该时点经验概率权重，C_t 是表达向量平方距离。"
+        },
+        {
+          "latex": "\\nabla_{\\hat x_j}W_{2,\\gamma}^2=2\\sum_iP^*_{ij}(\\hat x_j-x_i)",
+          "caption": "固定权重、内层充分收敛时，由式 (1) 与包络定理得到。再经 hθ 与潜在函数反传到 θ、Ψ；这是完整正则最优值的梯度。"
+        }
+      ],
+      "check": {
+        "question": "虚线是否表示第 1 天的某个细胞真实地变成第 3 天的指定细胞？",
+        "answer": "不是。这里的内层 OT 是同一时点观测群体与模型生成群体的匹配，不是跨时点真实谱系。"
+      },
+      "sources": [
+        {
+          "title": "D · LGP-OT 正式全文（方法 §4，实验 §5，局限 §6）",
+          "url": "https://raw.githubusercontent.com/mlresearch/v306/main/assets/balik26a/balik26a.pdf"
+        }
+      ]
+    },
+    {
+      "title": "LGP-OT ②：匹配数据与遵守 GP 先验，如何共同更新",
+      "paragraphs": [
+        "可学习的是 Φ 的变分分布参数 Ψ，以及解码器 θ。每轮从 qΨ 抽取 Φ，生成各时点细胞，求内层 OT，然后把总误差反向传到 θ、Ψ。",
+        "第二项 KL(qΨ‖p) 约束的是潜在函数参数，不是细胞边缘。它防止时间模型只追逐观测点，却脱离所设 GP 先验。",
+        "图中取 q=N(b,1)、p=N(0,1)，仅学习平移均值 b。去掉固定方差等常数后，匹配项为 (b−1)²，先验项为 b²/2；折中解 b=2/3，而非 1。",
+        "原模型在时序单细胞插值与外推上评估；空间数据扩展尚未完成。"
+      ],
+      "figure": {
+        "type": "paper-lgp-regularization",
+        "title": "LGP-OT ②：匹配数据与遵守 GP 先验，如何共同更新",
+        "caption": "正文式 (7) 的一参数切片。对随机 Φ 的期望会增加与 b 无关的固定方差项，已从曲线整体减去；γ 固定时平移以外的正则常数也不改变最小点。"
+      },
+      "formulas": [
+        {
+          "latex": "\\min_{\\theta,\\Psi}\\ \\mathbb E_{q_\\Psi(\\Phi)}\\left[\\sum_{t\\in\\mathcal T}W_{p,\\gamma}^p(\\rho_t,\\hat\\rho_t(\\theta,\\Phi))\\right]+\\mathrm{KL}(q_\\Psi(\\Phi)\\|p(\\Phi))",
+          "caption": "正文式 (7)。先验是层级 GP 先验；通过重参数化与 Monte Carlo 估计做梯度优化。"
+        },
+        {
+          "latex": "\\tilde L(b)=(b-1)^2+\\frac12b^2,\\quad \\tilde L^\\prime(b)=3b-2,\\quad b^*=\\frac23",
+          "caption": "只对一维平移均值的可变部分求导；这不是完整 GP 后验的闭式解。"
+        }
+      ],
+      "algorithm": [
+        "从 qΨ 重参数化采样 GP 参数，生成各观测时点的表达群体。",
+        "计算各时点正则 OT，并加入变分分布到 GP 先验的 KL。",
+        "对 θ、Ψ 梯度更新；在未测时点继续从已学时间模型生成样本。"
+      ],
+      "check": {
+        "question": "为什么本例不把 b=1 作为完整目标的最优解？",
+        "answer": "b=1 使图中的平移匹配误差为零，却有先验 KL=0.5；b=2/3 的匹配项为 1/9、KL 为 2/9，总和 1/3 更小。"
+      },
+      "sources": [
+        {
+          "title": "D · LGP-OT 正式全文（方法 §4，实验 §5，局限 §6）",
+          "url": "https://raw.githubusercontent.com/mlresearch/v306/main/assets/balik26a/balik26a.pdf"
+        }
+      ]
+    },
+    {
+      "title": "WFR-FM ①：状态移动与质量变化，怎样在同一个目标中权衡",
+      "paragraphs": [
+        "普通守恒 OT 只有速度；WFR 还引入增长率 g。它在连接两端测度的路径中，最小化按质量加权的移动与增长能量，并满足带源项的连续性方程。",
+        "图中一个单位质量点从 0 到 1，终端质量变为 4。WFR 路径的中点位置并非 0.5，质量也并非线性插值的 2.5：两者由同一几何共同决定。",
+        "该零带宽点质量例来自论文的精确两 Dirac 路径。实际训练使用加厚的条件高斯路径，并先求端点的静态 WFR 耦合。"
+      ],
+      "figure": {
+        "type": "paper-wfr-path",
+        "title": "WFR-FM ①：状态移动与质量变化，怎样在同一个目标中权衡",
+        "caption": "正文式 (3.3)—(3.6) 的精确两点例：m₀=1，m₁=4，x₀=0，x₁=1，δ=1。圆面积按 m 缩放；不是普通直线加线性增重。"
+      },
+      "formulas": [
+        {
+          "latex": "\\inf_{\\rho,u,g}\\int_0^1\\!\\int\\frac12(\\|u_t\\|^2+\\delta^2g_t^2)\\rho_t\\,dx\\,dt,\\quad \\partial_t\\rho+\\nabla\\!\\cdot(\\rho u)=\\rho g,\\quad (\\rho_0,\\rho_1)=(\\mu_0,\\mu_1)",
+          "caption": "正文式 (3.3)。δ 权衡移动与质量生成/损失，端点是非负测度，不要求总质量相等。"
+        },
+        {
+          "latex": "m(t)=At^2-2Bt+1,\\quad A=5-4\\cos(0.5),\\ B=1-2\\cos(0.5),\\quad u(t)=\\frac{4\\sin(0.5)}{m(t)},\\quad g(t)=\\frac{m^\\prime(t)}{m(t)}",
+          "caption": "把图中端点代入正文式 (3.5)、(3.6)。位置由 x′=u 积分得到。"
+        },
+        {
+          "latex": "x(t)=2\\operatorname{atan2}\\!\\left(2t\\sin(0.5),\\,1-t+2t\\cos(0.5)\\right)",
+          "caption": "本例的闭式位置，满足 x(0)=0、x(1)=1 且 x′(t)=u(t)。atan2(y,x) 按两个分量确定角度；代入 t=0.5 可复算图中的 x≈0.669819。"
+        }
+      ],
+      "check": {
+        "question": "把两端都归一化成概率，再只学位置路径，会丢掉哪条信息？",
+        "answer": "丢掉 1→4 的总质量变化；归一化后的形状指标无法核验是否恢复了生长。"
+      },
+      "sources": [
+        {
+          "title": "E · WFR-FM 正式全文（方法 §3—5，实验 §6，局限 §7、附录 D）",
+          "url": "https://proceedings.iclr.cc/paper_files/paper/2026/file/2030d35841f8617ab22cca913f55697e-Paper-Conference.pdf"
+        }
+      ]
+    },
+    {
+      "title": "WFR-FM ②：无需在训练中反复积分，怎样同时学两个场",
+      "paragraphs": [
+        "先求静态 WFR 半耦合 (γ₀,γ₁)，其源、目标边缘分别为 μ₀、μ₁。两端同除以源总质量，使 μ₀ 成为概率，再用 q(z)=γ₀ 抽端点对 z=(x₀,x₁)。",
+        "对抽到且 γ₀(z)>0 的端点对，条件初质量设为 m₀=1，末质量为 m₁=γ₁(z)/γ₀(z)。上一图只有一对端点，因此比值是 4；由此构造条件路径。",
+        "两个网络分别回归速度与增长，误差都乘 m_t。图中 t=0.5，预测速度 0.5、增长率 1；将它们与精确目标比较，得到两项加权损失。",
+        "训练更新 θ、ϕ；推断时解 dx/dt=vθ 与 dlog m/dt=gϕ。论文考察合成及单细胞动态；“simulation-free”指训练策略，不免除静态耦合计算。"
+      ],
+      "figure": {
+        "type": "paper-wfr-regression",
+        "title": "WFR-FM ②：无需在训练中反复积分，怎样同时学两个场",
+        "caption": "对应正文式 (4.7)：使用上一图的条件路径，κ=1。为便于核验取高斯中心，目标速度与增长率由同一精确路径计算，未训练完整网络。"
+      },
+      "formulas": [
+        {
+          "latex": "\\min_{\\theta,\\varphi}\\ \\mathbb E_{\\substack{t\\sim U[0,1],\\ z\\sim q\\\\ x\\sim\\tilde\\rho_t(\\cdot\\mid z)}}\\!\\left[m_t(z)\\left(\\|v_\\theta-u_t(\\cdot\\mid z)\\|^2+\\kappa|g_\\varphi-g_t(\\cdot\\mid z)|^2\\right)\\right]",
+          "caption": "正文式 (4.7)。t 在 [0,1] 上均匀抽取；z 依 q 抽取；ρ̃_t(·|z) 是单位质量的条件概率密度，ρ_t(·|z)=m_t(z)ρ̃_t(·|z) 才是非归一化条件测度。κ 权衡两项回归误差。"
+        },
+        {
+          "latex": "q(z)=\\gamma_0(z),\\quad m_0(z)=1,\\quad m_1(z)=\\frac{\\gamma_1(z)}{\\gamma_0(z)}\\quad(\\gamma_0(z)>0)",
+          "caption": "对应正文 §4.3 的采样约定，先将 μ₀ 规范成概率测度；γ₀ 的源边缘为 μ₀，γ₁ 的目标边缘为 μ₁。不是把两端总质量分别归一化，目标/源质量比例仍保留。"
+        },
+        {
+          "latex": "\\dot x=v_\\theta(x,t),\\qquad \\frac{d}{dt}\\log m=g_\\varphi(x,t)",
+          "caption": "对应正文式 (3.1) 的推断方程。学到的两个场共同决定非平衡群体演化。"
+        }
+      ],
+      "algorithm": [
+        "求 WFR 静态耦合，并转换为初端、末端质量可不同的半耦合。",
+        "抽条件端点与时刻，直接计算路径中心、质量、目标速度和增长率。",
+        "以质量加权的双头回归损失更新 θ、ϕ；推断时积分两个场。"
+      ],
+      "check": {
+        "question": "为什么不能把质量权重 m_t 从回归损失中直接删除？",
+        "answer": "删除后每条条件路径按相同权重贡献误差，通常改变了学习的边际场；论文由条件损失连接 WFR 动态目标的推导依赖这一质量权重。"
+      },
+      "sources": [
+        {
+          "title": "E · WFR-FM 正式全文（方法 §3—5，实验 §6，局限 §7、附录 D）",
+          "url": "https://proceedings.iclr.cc/paper_files/paper/2026/file/2030d35841f8617ab22cca913f55697e-Paper-Conference.pdf"
+        }
+      ]
     }
   ],
   "lab": "transport",
-  "labTask": "先在浏览器平衡一维实验中改变源点质量，观察可行计划怎样重新安排。再运行下面四点代码，对比独立配对与 OT 配对的中途分布；浏览器没有训练上述论文中的神经模型。",
-  "code": "import numpy as np\nimport ot\n\n# 原创四点教学实验；不是本章论文的性能复现。\nX = np.array([0., 1., 4., 5.])[:, None]\nY = np.array([6., 2., 7., 3.])[:, None]\na = b = np.ones(4) / 4\nM = ot.dist(X, Y, metric='sqeuclidean')\nP_ot = ot.emd(a, b, M)\nP_ind = np.outer(a, b)\n\ndef midpoint_statistics(P):\n    z = 0.5 * (X[:, 0, None] + Y[None, :, 0])\n    mean = np.sum(P * z)\n    variance = np.sum(P * (z - mean) ** 2)\n    return float(mean), float(variance)\n\nfor name, P in [('independent', P_ind), ('OT', P_ot)]:\n    assert np.allclose(P.sum(axis=1), a)\n    assert np.allclose(P.sum(axis=0), b)\n    assert np.all(P >= 0)\n    action = float(np.sum(P * M))\n    mean, variance = midpoint_statistics(P)\n    print(name, 'mean path energy =', action, 'midpoint mean =', mean, 'midpoint variance =', variance)\n\nassert np.isclose(np.sum(P_ot * M), 4.)\nassert np.isclose(np.sum(P_ind * M), 12.5)\nmu_ot, var_ot = midpoint_statistics(P_ot)\nmu_ind, var_ind = midpoint_statistics(P_ind)\nassert np.isclose(mu_ot, 3.5) and np.isclose(mu_ind, 3.5)\nassert not np.isclose(var_ot, var_ind)\nprint('OT plan:\\n', P_ot)\nprint('Same endpoints and midpoint mean do not imply the same intermediate population.')",
-  "codeNotes": "P_ind 与 P_ot 都是合法耦合，区别在于起终点如何关联。对单位时间的线性路径，速度恒为 y−x，因此平均动能积分就是计划的平方距离成本。midpoint_statistics 用全部配对及其真实权重计算中点分布，未先做重心映射；后者会把每行分裂质量压成一个均值，改变正在比较的对象。代码只验证这项数学机制，不代表已经复现 ULOT、KIDOT、A2A-FM、LGP-OT 或 WFR-FM。",
+  "labTask": "浏览器实验用于观察平衡一维计划。下面代码逐项核验本章十张图中的机制；网络训练需要使用对应作者实现。",
+  "code": "import numpy as np\nimport ot\nfrom itertools import permutations\n\n# 1. ULOT 原目标的两节点数值切片（不是训练网络）。\ndef gkl(p, q):\n    mask = p > 0\n    return float(np.sum(p[mask] * np.log(p[mask] / q[mask])) - p.sum() + q.sum())\n\ndef ulot(P):\n    f = np.array([0., 1.])\n    D1 = np.array([[0., 1.], [1., 0.]])\n    D2 = 2 * D1\n    F = np.sum(P * (f[:, None] - f[None, :])**2)\n    G = sum(P[i,j]*P[k,l]*(D1[i,k]-D2[j,l])**2\n            for i in range(2) for j in range(2)\n            for k in range(2) for l in range(2))\n    r, c = P.sum(1), P.sum(0)\n    ref = np.full((2,2), .25)\n    K = gkl(np.outer(r,r), ref) + gkl(np.outer(c,c), ref)\n    return np.array([.5*F, .5*G, .2*K])\n\nfor P in [.5*np.eye(2), np.full((2,2),.25), .25*np.eye(2)]:\n    terms = ulot(P); print('ULOT weighted terms:', terms, 'total:', terms.sum())\ns_star = np.exp(-.3125)\nh = 1e-5\nfd = (ulot((s_star+h)*np.eye(2)/2).sum()-ulot((s_star-h)*np.eye(2)/2).sum())/(2*h)\nassert abs(fd) < 1e-7\nassert np.isclose(ulot(.5*np.eye(2)).sum(), .25)\n\n# 2. KIDOT 一次中间状态的 Euler 步。\nx = np.array([.2,.2]); y=1.; dt=.5; H=np.array([-.2,.2])\nr = x.sum()-y\nphysical = -dt*np.ones(2)*r\nlearned = -dt*H\nnext_x = x+physical+learned\nprint('KIDOT physical/learned increments:',physical,learned,'next:',next_x)\nassert np.allclose(next_x,[.6,.4]) and np.isclose(next_x.sum(),y)\nq = np.array([.8,.2])\nfor cand in [np.array([.5,.5]),q,np.array([.8,.8])]:\n    print('Candidate:',cand,'measurement residual:',abs(cand.sum()-y),\n          'endpoint W1:',np.linalg.norm(cand-q))\n\n# 3. A2A-FM 正文式(11) 的两记录精确置换。\nx1=np.array([0.,3.]); x2=np.array([3.,0.])\nc1=np.array([0.,1.]); c2=np.array([1.,0.])\nD=(x1[:,None]-x2[None,:])**2\nB=(c1[:,None]-c1[None,:])**2+(c2[:,None]-c2[None,:])**2\nfor beta in [1.,6.]:\n    costs={perm:sum((D+beta*B)[i,j] for i,j in enumerate(perm))\n           for perm in permutations(range(2))}\n    best=min(costs,key=costs.get)\n    print('A2A beta:',beta,'costs:',costs,'best:',best,'velocities:',x2[list(best)]-x1)\n    assert best == ((1,0) if beta==1 else (0,1))\n\n# 4. LGP-OT 一维平移参数切片。固定 γ=0，q=N(b,1)。\n# 两个对称采样点 ξ=±1 精确匹配二次函数所需的一、二阶矩。\nbase=np.array([0.,2.])[:,None]; obs=np.array([1.,3.])[:,None]\nw=np.ones(2)/2\nfor b in [0.,2/3,1.]:\n    expected=np.mean([ot.emd2(w,w,ot.dist(base+b+z,obs,metric='sqeuclidean')) for z in [-1.,1.]])\n    prior_kl=.5*b*b\n    variable_part=expected-1+prior_kl\n    assert np.isclose(variable_part,(b-1)**2+.5*b*b)\n    print('LGP b:',b,'expected OT:',expected,'KL:',prior_kl,'loss minus constant 1:',variable_part)\nassert np.isclose((2/3-1)**2+.5*(2/3)**2,1/3)\n\n# 5. 精确两 Dirac WFR 路径：m0=1,m1=4,x0=0,x1=1,δ=1。\nc=np.cos(.5); A=5-4*c; B0=1-2*c; omega=4*np.sin(.5)\ndef wfr(t):\n    m=A*t*t-2*B0*t+1\n    x=2*np.arctan2(2*t*np.sin(.5),1-t+2*t*c)\n    u=omega/m\n    g=(2*A*t-2*B0)/m\n    return x,m,u,g\nfor t in [0.,.25,.5,.75,1.]:print('WFR t,x,m,u,g:',t,*wfr(t))\nx,m,u,g=wfr(.5)\nloss_v=m*(.5-u)**2; loss_g=m*(1-g)**2\nprint('WFR regression:',loss_v,loss_g,'total:',loss_v+loss_g)\ngrid=np.linspace(0,1,10001); xx,mm,uu,gg=wfr(grid)\nassert np.isclose(xx[-1],1.) and np.isclose(mm[-1],4.)\nassert np.allclose(np.gradient(xx,grid)[1:-1],uu[1:-1],atol=1e-7)\naction=np.trapezoid(.5*(uu**2+gg**2)*mm,grid)\nassert np.isclose(action,2*(5-4*c),rtol=1e-7)\nprint('WFR integrated action:',action,'closed form:',2*(5-4*c))\nprint('All five teaching mechanisms checked; no full paper model was trained.')\n# 固定权重的内层 OT 值梯度：两个生成点梯度应各为 -1。\nPstar=ot.emd(w,w,ot.dist(obs,base,metric='sqeuclidean'))\ngrad=2*np.sum(Pstar[:,:,None]*(base[None,:,:]-obs[:,None,:]),axis=0)\nassert np.allclose(grad,np.array([[-1.],[-1.]]))\nprint('LGP inner-value gradient at generated points:',grad.ravel())\n",
+  "codeNotes": "代码独立核验 ULOT 的三项损失与质量切片梯度、KIDOT 单步 Euler、A2A 原成本的最优置换、LGP 变分平移切片，以及 WFR 精确路径与双头回归。它展示数学机制，不包含完整网络训练。",
   "pitfalls": [
-    "把顶会收录视为所有应用结论均已验证。正式发表确认来源，具体结论仍受数据、任务与评估协议限制。",
-    "没有说明质量对应什么。图节点概率、图像样本权重、细胞数量与基因表达总量不是同一个量。",
-    "把低 OT 成本解释为真实因果或个体身份。成本与约束提供模型偏好，无法代替谱系、功能或干预证据。",
-    "只比较前向速度而忽略训练成本，或把近似预测计划写成严格全局最优解。",
-    "把时序 scRNA-seq 应用自动称为已完成空间转录组任务；空间坐标、切片关系和定位目标需要单独建模。",
-    "把分子计算性质改善当作药效验证，或者把图像分布指标改善当作个体重建准确性的充分证据。"
+    "ULOT 的 Pθ 是网络输出；训练优化 θ，不是为每个测试图重新从头优化独立 P。",
+    "KIDOT 的终端 W₁ 不能代替沿路径的物理约束，单个候选残差也不是完整 C。",
+    "A2A 条件罚项按同批记录索引比较；不是直接惩罚所有跨条件迁移。",
+    "LGP 中 KL(qΨ‖p) 约束潜在参数分布，与内层耦合的 KL 正则不同。",
+    "WFR 的位置、质量与两个回归目标来自同一几何；不能任意拼接线性位移与线性增重。"
   ],
   "quiz": {
-    "question": "一篇方法生成了与目标时点很相似的细胞表达分布，哪一项结论仍需额外证据？",
-    "options": ["生成群体可以与留出时点用分布指标比较", "训练中可以使用 OT 对齐群体", "某个起始细胞真实地分化成了某个指定目标细胞", "可以单独记录拟合误差与求解残差"],
-    "answer": 2,
-    "explanation": "群体快照与分布匹配不唯一决定逐细胞真实谱系。需要谱系追踪、额外动态观测或可验证的生物先验，才能支持更强的身份与命运解释。"
+    "question": "哪一项正确说明了本章的内外层优化？",
+    "options": [
+      "ULOT 训练时必须先制作每对图的精确标准计划",
+      "LGP 的内层耦合用于同一时点群体匹配，外层更新解码器与变分参数",
+      "A2A 的 β 强迫源条件与目标条件相同",
+      "WFR-FM 的训练损失可以任意删掉质量权重"
+    ],
+    "answer": 1,
+    "explanation": "LGP 的 P_t 由当前生成群体与观测群体计算；其误差反馈到 θ、Ψ。其余选项分别误解无监督计划预测、条件对配对和质量加权回归。"
   },
   "exercise": {
-    "question": "解释四点例子中为什么独立配对的成本为 12.5，而整体平移配对的成本为 4。若两者的中点均值相同，能否因此断言中途分布相同？",
-    "answer": "源均值为 2.5，目标均值为 4.5，两边方差均为 4.25。独立配对时 E[(Y−X)^2]=Var(Y)+Var(X)+(E[Y]−E[X])^2=4.25+4.25+4=12.5。按整体平移配对，每条路径都移动 2，平方代价都是 4，因此平均为 4；均值差提供的 Jensen 下界也为 4，证明此计划最优。中点均值始终是两端均值的平均，即 3.5；但独立中点方差是 (4.25+4.25)/4=2.125，平移中点保留源方差 4.25。因此中点均值相等不代表分布相同。选择较低能量路径是一项模型偏好，不能仅凭这个计算认定它是真实的生物过程。"
+    "question": "对 A2A 图中的两记录例，算出两种置换的成本，解释 β=1 与 β=6 为何给出不同的训练速度。",
+    "answer": "不交换 π=(1,2) 时，数据差为 3²+(-3)²=18，条件对差为 0，总计 18。交换时数据差为 0，但两批各自条件差平方和共 4，总计 4β。β=1 选交换，两目标速度都为 0；β=6 选不交换，速度为 +3、−3，对应条件 0→1 与 1→0。在 t=0.5 两路径位置相同，所以网络必须接收条件对来区分监督。"
   },
   "references": [
-    {"title":"A · ULOT，NeurIPS 2025 正式主会论文页","url":"https://proceedings.neurips.cc/paper_files/paper/2025/hash/873fd89b3e4db1f6242c2333673e104d-Abstract-Conference.html"},
-    {"title":"A · ULOT 正式全文（方法 §2，实验 §3，局限 §4）","url":"https://proceedings.neurips.cc/paper_files/paper/2025/file/873fd89b3e4db1f6242c2333673e104d-Paper-Conference.pdf"},
-    {"title":"A · 作者代码 ULOT","url":"https://github.com/smazelet/ULOT"},
-    {"title":"B · KIDOT，NeurIPS 2025 正式主会论文页","url":"https://proceedings.neurips.cc/paper_files/paper/2025/hash/3a5b75ce6cbd3aaaa32d6e935ffc4cff-Abstract-Conference.html"},
-    {"title":"B · KIDOT 正式全文（方法 §3，实验 §4，局限 §5）","url":"https://proceedings.neurips.cc/paper_files/paper/2025/file/3a5b75ce6cbd3aaaa32d6e935ffc4cff-Paper-Conference.pdf"},
-    {"title":"B · 作者代码 KIDOT","url":"https://github.com/TaoranZheng717/KIDOT"},
-    {"title":"C · A2A-FM，NeurIPS 2025 正式主会论文页","url":"https://proceedings.neurips.cc/paper_files/paper/2025/hash/a821bd31e93435b50c0a461337fe75c0-Abstract-Conference.html"},
-    {"title":"C · A2A-FM 作者全文 HTML v4（方法 §3，实验 §5，讨论 §6）","url":"https://arxiv.org/html/2504.03188v4"},
-    {"title":"C · 作者代码 A2A-FM","url":"https://github.com/kotatumuri-room/A2A-FM"},
-    {"title":"D · LGP-OT，ICML 2026 正式论文页（PMLR 306）","url":"https://proceedings.mlr.press/v306/balik26a.html"},
-    {"title":"D · LGP-OT 正式全文（方法 §4，实验 §5，局限 §6）","url":"https://raw.githubusercontent.com/mlresearch/v306/main/assets/balik26a/balik26a.pdf"},
-    {"title":"D · 作者代码 LGP-OT","url":"https://github.com/YigitBalik/LGP-OT"},
-    {"title":"E · WFR-FM，ICLR 2026 正式主会论文页","url":"https://proceedings.iclr.cc/paper_files/paper/2026/hash/2030d35841f8617ab22cca913f55697e-Abstract-Conference.html"},
-    {"title":"E · WFR-FM 正式全文（方法 §3—5，实验 §6，局限 §7、附录 D）","url":"https://proceedings.iclr.cc/paper_files/paper/2026/file/2030d35841f8617ab22cca913f55697e-Paper-Conference.pdf"},
-    {"title":"E · 作者代码 WFR-FM","url":"https://github.com/QiangweiPeng/WFR-FM"}
+    {
+      "title": "A · Unsupervised Learning for Optimal Transport plan prediction between unbalanced graphs — NeurIPS 2025",
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2025/hash/873fd89b3e4db1f6242c2333673e104d-Abstract-Conference.html"
+    },
+    {
+      "title": "A · ULOT 正式全文（方法 §2，实验 §3，局限 §4）",
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2025/file/873fd89b3e4db1f6242c2333673e104d-Paper-Conference.pdf"
+    },
+    {
+      "title": "A · 作者代码 ULOT",
+      "url": "https://github.com/smazelet/ULOT"
+    },
+    {
+      "title": "B · Towards Prospective Medical Image Reconstruction via Knowledge-Informed Dynamic Optimal Transport — NeurIPS 2025",
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2025/hash/3a5b75ce6cbd3aaaa32d6e935ffc4cff-Abstract-Conference.html"
+    },
+    {
+      "title": "B · KIDOT 正式全文（方法 §3，实验 §4，局限 §5）",
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2025/file/3a5b75ce6cbd3aaaa32d6e935ffc4cff-Paper-Conference.pdf"
+    },
+    {
+      "title": "B · 作者代码 KIDOT",
+      "url": "https://github.com/TaoranZheng717/KIDOT"
+    },
+    {
+      "title": "C · Pairwise Optimal Transports for Training All-to-All Flow-Based Condition Transfer Model — NeurIPS 2025",
+      "url": "https://proceedings.neurips.cc/paper_files/paper/2025/hash/a821bd31e93435b50c0a461337fe75c0-Abstract-Conference.html"
+    },
+    {
+      "title": "C · A2A-FM 作者全文 HTML v4（方法 §3，实验 §5，讨论 §6）",
+      "url": "https://arxiv.org/html/2504.03188v4"
+    },
+    {
+      "title": "C · 作者代码 A2A-FM",
+      "url": "https://github.com/kotatumuri-room/A2A-FM"
+    },
+    {
+      "title": "D · Modeling Temporal scRNA-seq Data with Latent Gaussian Process and Optimal Transport — ICML 2026",
+      "url": "https://proceedings.mlr.press/v306/balik26a.html"
+    },
+    {
+      "title": "D · LGP-OT 正式全文（方法 §4，实验 §5，局限 §6）",
+      "url": "https://raw.githubusercontent.com/mlresearch/v306/main/assets/balik26a/balik26a.pdf"
+    },
+    {
+      "title": "D · 作者代码 LGP-OT",
+      "url": "https://github.com/YigitBalik/LGP-OT"
+    },
+    {
+      "title": "E · WFR-FM: Simulation-Free Dynamic Unbalanced Optimal Transport — ICLR 2026",
+      "url": "https://proceedings.iclr.cc/paper_files/paper/2026/hash/2030d35841f8617ab22cca913f55697e-Abstract-Conference.html"
+    },
+    {
+      "title": "E · WFR-FM 正式全文（方法 §3—5，实验 §6，局限 §7、附录 D）",
+      "url": "https://proceedings.iclr.cc/paper_files/paper/2026/file/2030d35841f8617ab22cca913f55697e-Paper-Conference.pdf"
+    },
+    {
+      "title": "E · 作者代码 WFR-FM",
+      "url": "https://github.com/QiangweiPeng/WFR-FM"
+    }
   ]
 }

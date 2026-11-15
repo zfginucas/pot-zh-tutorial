@@ -1,327 +1,561 @@
 {
   "id": "16",
   "slug": "spatial-transcriptomics",
-  "title": "空间转录组：把 OT 变成可解释的生物问题",
-  "subtitle": "一张基因表达地图里，什么是质量，什么是距离，匹配又说明了什么？",
+  "title": "空间转录组中的 OT 如何计算",
+  "subtitle": "从两张表达地图，逐步写出 PASTE、PASTE2、SpaOTsc、moscot 与 COMMOT 的优化问题。",
   "stage": "研究专题",
-  "minutes": 65,
+  "minutes": 70,
   "prerequisites": [
-    "理解离散耦合、FGW、非平衡与部分传输",
-    "能区分权重、成本和样本坐标",
+    "离散耦合与线性 OT",
+    "第 10 章的 GW 与 FGW",
     "无需预先掌握生物学术语"
   ],
   "goals": [
-    "把空间转录组数据写成表达矩阵、坐标与样本权重",
-    "区分切片配准、单细胞空间映射、时间映射、通讯推断与空间基因检测",
-    "读懂 PASTE、PASTE2、SpaOTsc、moscot、COMMOT 中 OT 的具体作用",
-    "设计有留出验证、混杂检查和生物学边界的复现实验"
+    "用表达、坐标和权重构造两类成本",
+    "逐项算出 FGW 目标，并完成一轮条件梯度",
+    "解释部分匹配、非平衡匹配及共享分子容量",
+    "从计划读出坐标、基因预测与候选通讯"
   ],
   "sections": [
     {
-      "title": "先读懂一张空间转录组表",
+      "title": "组织位置、表达向量与质量分别进入哪里",
       "paragraphs": [
-        "空间转录组同时记录两类信息：某个位置测到了哪些基因的 RNA，以及这个位置在组织中的坐标。可以把它想象成一张地图，每个点附着一张“当前转录活动清单”。基因表达矩阵 X 有 n 行、g 列，行对应观测单位，列对应基因；位置矩阵 S 有 n 行、2 列或 3 列。X 的一行是一个高维分子状态，S 的一行是这个状态被测到的物理位置，二者必须按同一个索引对齐。",
-        "观测单位不一定是单个细胞。有的平台把一个捕获位置称为 spot，一个 spot 可能包含多个细胞或细胞片段；经过分割的数据也可能以 cell 为单位。因而不能把“一个 spot 匹配到另一个 spot”直接翻译成“同一个细胞移动了过去”。切片取样通常会破坏样本，也未逐个追踪同一细胞。数据的分辨率、分割误差与捕获效率，都应进入结果解释。",
-        "质量 a_i 也不是自动等于第 i 个位置的 RNA 总数。均匀权重表示每个观测单位占同等概率；估计细胞数权重则表达另一种抽样假设。每个位置的总计数常受测序深度、捕获效率和细胞大小影响，不能未经论证就当作真实细胞数量或生物学增殖率。建模的第一步是为“这一份质量代表什么”写一句清楚的定义。"
+        "空间转录组给每个观测位置一组基因 RNA 计数和一个坐标。spot 是捕获位置，可能包含多个细胞。下面用三个 spot、两个基因构造可手算的切片。",
+        "本章把表达矩阵按“位置×基因”排列，坐标按“位置×坐标维数”排列。均匀质量 a_i=1/3 表示每个位置占同等权重。三者通过相同的位置索引关联。"
       ],
-      "formula": "X\\in\\mathbb R_+^{n\\times g},\\qquad S\\in\\mathbb R^{n\\times d},\\qquad \\mu=\\sum_{i=1}^{n}a_i\\delta_{(X_i,S_i)}",
-      "caption": "X 为基因表达，S 为物理坐标，a 是建模者指定的非负质量。表达距离与物理距离处在不同空间，不能直接混为一个欧氏距离。",
       "figure": {
-        "type": "pipeline",
-        "labels": [
-          [
-            "组织切片",
-            "每点读取 RNA 与位置"
-          ],
-          [
-            "两张配对表",
-            "表达 X / 坐标 S"
-          ],
-          [
-            "概率模型",
-            "明确权重 a 的含义"
-          ]
+        "type": "spatial-data"
+      },
+      "table": {
+        "headers": [
+          "对象",
+          "形状",
+          "在模型中的作用"
         ],
-        "caption": "同一索引把表达与位置连起来。点的位置、点的分子状态、点的质量是三种不同信息。"
+        "rows": [
+          [
+            "表达 X、Y",
+            "n×g、m×g",
+            "构造跨片表达差异 M"
+          ],
+          [
+            "坐标 S、T",
+            "n×d、m×d",
+            "构造各片内部距离 Dᴬ、Dᴮ"
+          ],
+          [
+            "权重 a、b",
+            "n、m",
+            "规定位置可分配的质量"
+          ],
+          [
+            "待求计划 P",
+            "n×m",
+            "Pᵢⱼ 表示 i 与 j 的关联质量"
+          ]
+        ]
+      },
+      "formulas": [
+        {
+          "latex": "U(a,b)=\\{P\\ge0:P\\mathbf1=a,\\ P^\\top\\mathbf1=b\\},\\qquad \\sum_i a_i=\\sum_j b_j=1",
+          "caption": "平衡模型中每个位置的质量全部进入计划，两个边缘可在同一图上核对。"
+        }
+      ],
+      "check": {
+        "question": "源切片有三个 spot，目标有六个 spot，能否使用平衡 OT？",
+        "answer": "可以。设源权重各为 1/3，目标各为 1/6，两边总量相同。一个源位置可以把质量分给多个目标位置。"
       }
     },
     {
-      "title": "同样叫空间组学分析，OT 可能在做五件不同的事",
+      "title": "PASTE 先构造两条计算通道",
       "paragraphs": [
-        "第一类任务是切片配准：两张不同切片中，哪些位置代表相近组织区域？源与目标都是“位置上的多基因表达谱”，计划的元素是跨切片关联强度。第二类是单细胞空间映射：一端是失去坐标的 scRNA-seq 细胞，另一端是空间参考位置；计划提供的是每个细胞对候选位置的软分配。两者输入不同，评价真值也不同，不能用同一张漂亮叠图证明都做好了。",
-        "第三类是时间映射：把早期群体的状态与后期群体关联，用于提出潜在发育路径；不同时间点的细胞往往并非同一批被连续观察的个体。第四类是通讯推断：把配体与受体相关的表达看成供给、容量与空间限制，提出可能的信号联系。第五类是空间变异或特征基因检测：固定同一组织坐标，把一个基因在空间的表达模式与某种参考模式比较。后者的输出是基因分数或检验结果，并不需要跨切片找对应点。",
-        "这五类任务共享 OT 语言，却有不同的统计问题。配准主要关注关联与几何；基因检测还需明确零假设、表达量和空间背景；通讯推断需要分子兼容性与空间范围。后续专利章节讨论特征基因鉴定，阅读时应先识别它属于哪一类任务，再判断使用的质量、成本与检验是否匹配。"
+        "PASTE 发表在 Nature Methods 2022。成对配准使用表达成本 M 和两张片内距离表 Dᴬ、Dᴮ。原文分析把每个 spot 的 UMI 归一化后用 KL 计算表达成本。",
+        "为便于手算，图中改用表达平方差除以 8。B 的前两行表达交换，坐标仍在 0、1、3。因此表达偏好 A₁→B₂，片内距离会同时检查其他位置的配对。"
       ],
       "figure": {
-        "type": "pipeline",
-        "labels": [
-          [
-            "先问生物问题",
-            "配准 / 映射 / 通讯 / 基因"
-          ],
-          [
-            "再定义 OT 对象",
-            "谁是点、谁是质量"
-          ],
-          [
-            "最后确定输出",
-            "关联矩阵或基因分数"
-          ]
-        ],
-        "caption": "同一个 OT 求解器可以服务不同任务，输入与统计解释必须随任务改变。"
-      }
+        "type": "spatial-channels"
+      },
+      "formulas": [
+        {
+          "latex": "M_{ij}=c(X_i,Y_j),\\quad D^A_{ik}=\\|S_i-S_k\\|_2,\\quad D^B_{jl}=\\|T_j-T_l\\|_2",
+          "caption": "M 跨两张切片比较表达，Dᴬ 和 Dᴮ 分别描述各自片内的空间关系。"
+        },
+        {
+          "latex": "M^{\\rm toy}_{ij}=\\frac18\\|X_i-Y_j\\|_2^2,\\quad X=\\begin{pmatrix}3&1\\\\1&3\\\\2&2\\end{pmatrix},\\quad Y=\\begin{pmatrix}1&3\\\\3&1\\\\2&2\\end{pmatrix}",
+          "caption": "图和代码使用这个明确标记的教学成本。"
+        }
+      ],
+      "check": {
+        "question": "把 B 整张旋转 90°，M 和 Dᴮ 哪一个会改变？",
+        "answer": "在表达不变、刚性旋转的设置中，两者都不变。表达没有改变，B 内任意两点的欧氏距离也保持不变。"
+      },
+      "sources": [
+        {
+          "title": "PASTE，Methods M1.1.1，式 (1)–(2)",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9334025/"
+        }
+      ]
     },
     {
-      "title": "PASTE：表达相近，还要让邻里关系相容",
+      "title": "为什么结构项要同时看两条运输边",
       "paragraphs": [
-        "PASTE 的正式论文发表于 Nature Methods 2022，处理相邻切片的概率配准与整合。它把跨切片表达差异与片内空间关系放进 FGW 目标；论文还讨论多切片叠放以及中心切片整合。作者在模拟和真实空间转录组数据上评估了这种联合建模。这里介绍的是建模原理，具体流程、预处理与实验应以原论文和作者实现为准。",
-        "设 M_ij 衡量源位置 i 与目标位置 j 的表达差异，D^A_ik 是源切片内部两个位置的物理距离，D^B_jl 是目标切片内部距离。线性项倾向于匹配表达相似的位置；结构项问：若 i 对应 j、k 对应 l，那么两张切片里的距离关系是否相容？由于片内距离不依赖整张切片的平移与旋转，它比直接把两张图的原始坐标相减更适合未配准数据。",
-        "可以想象两张纸上的同一条弯曲组织边界：纸被转了一圈，原始坐标差很大，但边界内外的分子类型与邻里关系仍有规律。表达信息可打破几何对称导致的歧义，几何信息可降低表达噪声造成的随意配对。反过来，若组织发生真实形变或细胞类型组成改变，强求结构一致也可能制造错误对应。α 需要相对于两个成本项的尺度解释，不能只凭一个固定数字在所有样本间迁移。"
+        "线性 OT 每次评价一条边的表达代价。结构项同时取 i→j 与 k→l，比较 A 中 i、k 的距离和 B 中 j、l 的距离，并用两条边的质量乘积加权。",
+        "右图中 A₁→B₂、A₃→B₃ 将长度 3 对应为长度 2。该有序点对贡献 1/9，反向再贡献 1/9。另一组失配同样贡献 2/9，合计 Q=4/9。"
       ],
-      "formula": "\\min_{P\\in U(a,b)}(1-\\alpha)\\sum_{i,j}M_{ij}P_{ij}+\\alpha\\sum_{i,j,k,l}(D^A_{ik}-D^B_{jl})^2P_{ij}P_{kl}",
-      "caption": "这是便于教学的平方损失 FGW 写法。α=0 只比较表达特征，α=1 只比较片内结构；真实方法的表达差异定义、初始化和整合步骤需单独核对。",
       "figure": {
-        "type": "pipeline",
-        "labels": [
-          [
-            "两张切片",
-            "表达差 M / 片内距离 D"
-          ],
-          [
-            "联合约束",
-            "表达相近且邻里相容"
-          ],
-          [
-            "软配准 P",
-            "关联不是细胞追踪"
-          ]
-        ],
-        "caption": "PASTE 思路图。线性 OT 比特征，GW 比各自空间内部关系。"
-      }
+        "type": "spatial-pair-cost"
+      },
+      "formulas": [
+        {
+          "latex": "E(P)=\\sum_{ij}M_{ij}P_{ij},\\qquad Q(P)=\\sum_{ijkl}(D^A_{ik}-D^B_{jl})^2P_{ij}P_{kl}",
+          "caption": "E 衡量匹配位置的表达差异，Q 累计所有有序点对的空间失配。"
+        },
+        {
+          "latex": "P_{\\rm keep}=\\tfrac13 I_3,\\qquad P_{\\rm swap}=\\tfrac13\\begin{pmatrix}0&1&0\\\\1&0&0\\\\0&0&1\\end{pmatrix}",
+          "caption": "这两份候选计划都满足 a=b=(1/3,1/3,1/3)。"
+        }
+      ],
+      "check": {
+        "question": "若将 P₁₂ 减半，而 P₃₃ 保持不变，单独这一个点对的 Q 贡献怎样变化？",
+        "answer": "乘积 P₁₂P₃₃ 减半，因此该项贡献减半。完整计划还要重新满足边缘约束，其他项会随调整改变。"
+      },
+      "sources": [
+        {
+          "title": "PASTE，Methods M1.1.1，式 (1)–(2)",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9334025/"
+        }
+      ]
     },
     {
-      "title": "PASTE2：没有重叠的区域，允许它不匹配",
+      "title": "α 通过目标值改变匹配偏好",
       "paragraphs": [
-        "PASTE2 的正式论文发表于 Genome Research 2023，面向部分重叠的多切片数据。它使用部分 FGW，并提供重叠比例选择过程，可纳入组织学信息。论文以模拟和真实数据讨论部分配准，并展示果蝇胚胎多切片重建。它属于空间配准方法，不能据其配准结果直接声称发现了空间特征基因。",
-        "设两张切片各有一块共同区域，但其中一张多出一个组织边缘。平衡计划强制每个位置的质量都被关联，额外边缘也必须“找个归宿”。部分计划则把行列边缘改成上界，并规定只运输总量 m，从而允许某些位置留下未匹配质量。它没有自动证明被留下的位置是异常值：也可能是正常但在另一张切片中没有采到的组织。",
-        "下面代码使用 POT 的绝对质量参数 m。若输入权重已各自归一化为 1，m=0.75 的数值同时可称为运输 75% 的概率质量；若真实总质量不为 1，就必须先把比例换成绝对量。更重要的是，m 是模型选择，过小会只挑最容易的匹配，过大会重新强配不重叠区。因此应报告覆盖率与匹配质量，不能只展示保留下来的好看区域。"
+        "PASTE 最小化 Fα(P)=(1−α)E(P)+αQ(P)。将两份给定计划代入，得到图中的两条直线。α=0.2 时交换计划更便宜，α=0.8 时保持结构的计划更便宜。",
+        "两条线在 α=0.6 相交。完整求解器会在整个可行域中寻找计划。表达与空间成本的单位和尺度会改变交点，因此归一化方式应与 α 一起记录。"
       ],
-      "formula": "P\\mathbf1\\le a,\\qquad P^\\top\\mathbf1\\le b,\\qquad \\mathbf1^\\top P\\mathbf1=m,\\quad 0\\le m\\le\\min\\{\\|a\\|_1,\\|b\\|_1\\},\\qquad P\\ge0",
-      "caption": "部分 FGW 改变的是可行域。POT 的 m 是绝对质量；PASTE2 文献中使用的归一化重叠比例还需结合其权重约定理解。",
       "figure": {
-        "type": "pipeline",
-        "labels": [
-          [
-            "共同区 + 独有区",
-            "切片视野并非完全相同"
-          ],
-          [
-            "部分 FGW",
-            "只匹配预算内的质量"
-          ],
-          [
-            "关联 + 未匹配部分",
-            "同时报告质量与覆盖率"
-          ]
+        "type": "spatial-alpha"
+      },
+      "formulas": [
+        {
+          "latex": "\\min_{P\\in U(a,b)}F_\\alpha(P),\\qquad F_\\alpha(P)=(1-\\alpha)E(P)+\\alpha Q(P),\\quad 0\\le\\alpha\\le1",
+          "caption": "P 是优化变量。M、Dᴬ、Dᴮ、a、b 和 α 是输入。"
+        },
+        {
+          "latex": "F_\\alpha(P_{\\rm keep})=\\tfrac23(1-\\alpha),\\qquad F_\\alpha(P_{\\rm swap})=\\tfrac49\\alpha",
+          "caption": "比较图中两份候选计划可手算交点 3/5。"
+        }
+      ],
+      "table": {
+        "headers": [
+          "α",
+          "保持结构计划",
+          "交换前两点计划",
+          "两者中较低者"
         ],
-        "caption": "允许不配对的意义是避免强造对应，而不是把未匹配区域从生物学解释中删掉。"
-      }
+        "rows": [
+          [
+            "0.2",
+            "8/15 ≈ 0.5333",
+            "4/45 ≈ 0.0889",
+            "交换"
+          ],
+          [
+            "0.6",
+            "4/15",
+            "4/15",
+            "相同"
+          ],
+          [
+            "0.8",
+            "2/15 ≈ 0.1333",
+            "16/45 ≈ 0.3556",
+            "保持结构"
+          ]
+        ]
+      },
+      "check": {
+        "question": "若只把 M 乘 10，保持 α 不变，会更强调哪类信息？",
+        "answer": "表达项相对结构项放大十倍。图中交换计划的表达成本为零，它在更大的 α 区间内仍会优于保持结构计划。"
+      },
+      "sources": [
+        {
+          "title": "PASTE，Methods M1.1.1，式 (1)–(2)",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9334025/"
+        }
+      ]
     },
     {
-      "title": "SpaOTsc：给失去坐标的单细胞一张位置概率图",
+      "title": "PASTE 用条件梯度把非凸问题拆成线性 OT",
       "paragraphs": [
-        "SpaOTsc 由 Cang 与 Nie 发表于 Nature Communications 2020。其空间映射利用共同基因的跨数据表达差异、单细胞内部表达关系和空间参考内部距离，并用结构化非平衡 OT 关联两端。作者通过留出基因的空间表达预测及位置区域预测评价映射，之后还讨论基于空间关联的细胞关系与信号分析。",
-        "与跨切片配准相比，scRNA-seq 细胞没有已知的组织坐标；其内部结构通常来自表达空间，而目标内部结构来自物理位置。假设是分子状态与组织空间组织存在可利用的关系，并非两个距离天然相等。若多个区域表达相似，单个细胞的位置可能不可辨识。将一行计划归一化后可以画成位置关联权重，但这不是经过校准的真实位置后验概率。",
-        "对空间参考中未测的基因，可把单细胞表达沿计划聚合到空间位置。若 P_ij 连接细胞 i 与位置 j，则列归一化平均是一种直观预测方式；前提是该位置有正关联质量。预测地图里的细节可能来自模型平滑与参考基因，不能当作已直接测量到的新证据。评估时应把被预测基因从建模特征中拿掉，避免用同一个基因既建立映射又证明映射准确。"
+        "给定当前计划 P，先计算完整 FGW 梯度 G。固定 G 后，寻找使 ⟨G,S⟩ 最小的可行 S，这是一次线性 OT。随后沿 S−P 方向做一维线搜索。",
+        "P 与 S 满足同样边缘，所以 P+γ(S−P) 在 γ∈[0,1] 内保持可行。图中第一轮将目标从 1.5 降至 2/9，后续迭代仍需重新计算梯度。",
+        "对称距离矩阵下，Q 的梯度含因子 2。这个系数影响结构项与表达项的相对权重，实际实现需要保留。FGW 的非凸性需要通过多次初始化检查。"
       ],
-      "formula": "\\widehat X^{\\mathrm{space}}_{j,g}=\\frac{\\sum_iP_{ij}X^{\\mathrm{sc}}_{i,g}}{\\sum_iP_{ij}},\\qquad \\sum_iP_{ij}>0",
-      "caption": "这是计划聚合的教学公式：对每个位置 j，用关联到它的单细胞表达加权平均。对非平衡或部分计划，分母必须使用实际列和，不能盲目除以预设 b_j。",
       "figure": {
-        "type": "pipeline",
-        "labels": [
-          [
-            "scRNA 细胞",
-            "高维表达，缺少坐标"
-          ],
-          [
-            "关联到空间参考",
-            "共同基因 + 结构"
-          ],
-          [
-            "位置权重 / 表达预测",
-            "保留不确定性"
-          ]
-        ],
-        "caption": "一个细胞可关联多个候选位置；强行 argmax 会隐藏不确定性。"
-      }
+        "type": "spatial-frank-wolfe"
+      },
+      "formulas": [
+        {
+          "latex": "G_{ij}=(1-\\alpha)M_{ij}+2\\alpha\\sum_{kl}(D^A_{ik}-D^B_{jl})^2P_{kl}",
+          "caption": "对称 Dᴬ、Dᴮ 的梯度。全矩阵可以用矩阵乘法计算。"
+        },
+        {
+          "latex": "S\\in\\arg\\min_{S\\in U(a,b)}\\langle G,S\\rangle,\\quad \\gamma^*\\in\\arg\\min_{\\gamma\\in[0,1]}F_\\alpha(P+\\gamma(S-P))",
+          "caption": "EMD 求候选方向，线搜索决定实际移动多少。"
+        },
+        {
+          "latex": "P_{\\rm new}=(1-\\gamma^*)P+\\gamma^*S",
+          "caption": "当前计划与线性子问题最优计划的凸组合。"
+        },
+        {
+          "latex": "g_{\\rm FW}(P)=\\langle G,P-S\\rangle\\ge0",
+          "caption": "方向间隙以当前梯度与线性子问题最优计划计算。接近零可用作非凸问题的驻点诊断。"
+        }
+      ],
+      "algorithm": [
+        "初始化 P⁽⁰⁾=abᵀ，确保行列边缘可行。",
+        "根据当前 P 计算 G，调用线性 OT 得到 S。",
+        "把 Fα(P+γ(S−P)) 写成关于 γ 的二次式。",
+        "比较区间端点及区间内极小点，更新 P。",
+        "检查目标变化、方向间隙和边缘残差，再决定是否继续。"
+      ],
+      "check": {
+        "question": "为什么不能每轮都直接设 P=S？",
+        "answer": "S 只最小化当前线性化目标。原始 FGW 含二次结构项，沿方向走满一步未必最优，线搜索负责选择 γ。"
+      },
+      "sources": [
+        {
+          "title": "PASTE，Methods M1.1.1，式 (1)–(2)",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9334025/"
+        }
+      ]
     },
     {
-      "title": "moscot：把时间、空间与多模态问题放入统一框架",
+      "title": "从关联 P 读出叠放坐标",
       "paragraphs": [
-        "moscot 正式论文发表于 Nature 2025；DOI 中的 2024 不代表正式发表年份。它区分时间映射、空间配准、单细胞到空间映射与时空问题，并支持多模态信息及规模化 OT 计算。论文展示了发育时间点、空间参考增强与切片对齐等应用。不同模块有各自成本、边缘与求解设置，不能把框架名称当作某一个固定目标函数。",
-        "阅读这类统一框架时，可以沿着四个问题找方法：你准备的是什么数据对象？哪几个数据集之间允许连边？每一条边用什么成本和边缘？计划如何聚合成你要的输出？空间对齐关心同类组织的对应，时间映射关心早晚群体的关联，二者即使都产生 n×m 矩阵，行列语义也完全不同。先看问题对象，再看求解器参数，会比照抄一段通用 API 更可靠。",
-        "尤其要区分“状态路径”与“真实轨迹”。某个早期群体关联到某个晚期群体，可以提出潜在后代概率或区域流向，但静态测量不能独自证明哪一个细胞确实经历了这条路径。谱系追踪、时间密度、增长死亡信息和独立实验，可以加强或反驳解释。跨时间的坐标变化也可能来自整体组织形变，未必表示单细胞主动迁移。"
+        "求得 P 后，PASTE 用它作为权重，寻找正交变换 R 与平移 v，使关联位置在同一坐标系中接近。这是加权 Procrustes 问题，可用中心化与 SVD 求解。",
+        "跨多张切片时，可沿相邻配准逐层投影，再按切片顺序与层间距设置 z。中心切片整合则固定模板位置，联合更新表达的低秩非负表示与各片计划。"
       ],
       "figure": {
-        "type": "pipeline",
-        "labels": [
-          [
-            "明确问题对象",
-            "time / space / multimodal"
-          ],
-          [
-            "选择成本与边缘",
-            "表达、结构与质量假设"
-          ],
-          [
-            "汇总关联",
-            "区域转移 / 预测 / 对齐"
-          ]
-        ],
-        "caption": "统一框架方便组织不同问题，生物学语义仍须逐个定义。"
-      }
+        "type": "spatial-coordinate-readout"
+      },
+      "formulas": [
+        {
+          "latex": "\\min_{R^\\top R=I,\\ v}\\sum_{ij}P_{ij}\\|S_i-(RT_j+v)\\|_2^2",
+          "caption": "此时 P 已知，优化变量换成坐标变换 R、v。"
+        },
+        {
+          "latex": "\\bar S=\\sum_i a_iS_i,\\quad\\bar T=\\sum_j b_jT_j,\\quad v=\\bar S-R\\bar T",
+          "caption": "这里 P 是平衡概率计划。中心化后利用加权交叉协方差的 SVD 求 R，再恢复 v。"
+        }
+      ],
+      "check": {
+        "question": "把表达成本整体放大后，已固定 P 的 Procrustes 解会改变吗？",
+        "answer": "不会。这个坐标读出步骤只使用已给定的 P 与原始坐标。成本改变若重新求得不同的 P，才会间接改变读出。"
+      },
+      "sources": [
+        {
+          "title": "PASTE，Methods M1.1.1，式 (1)–(2)",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9334025/"
+        }
+      ]
     },
     {
-      "title": "COMMOT：质量变成分子容量，目标变成候选通讯",
+      "title": "PASTE2 将完整边缘改成容量上界",
       "paragraphs": [
-        "COMMOT 的正式论文发表于 Nature Methods 2023。它以 collective optimal transport 联合考虑多种配体—受体的竞争、容量与空间范围，输出候选通讯关联及其下游分析。作者在模拟与空间数据中进行评估。这不是把两张切片重新对齐，也不等于逐个配体—受体对独立运行一次平衡 EMD。",
-        "把“配体”理解为某些细胞可能释放的信号分子，“受体”理解为其他细胞接收特定信号的分子入口。若两个信号都可能使用同一受体，它们会竞争同一容量；分别独立推断就可能重复使用容量。空间距离还限制可行联系。这里质量的建模对象是表达所代表的可用量或容量，计划维度可以同时包含分子种类、发送位置与接收位置，而不只是一张简单的细胞配对表。",
-        "推断得到一根从 A 指向 B 的箭头，应读作“在这些表达、配体—受体数据库和空间范围假设下，模型认为这条联系值得进一步验证”。RNA 不等于分泌蛋白，不等于受体活化，也不等于实际物质流。组织切片中的共定位、蛋白检测、扰动实验和下游通路证据，才有助于判断箭头是否对应真实机制；单凭 OT 分数不能建立因果关系。"
+        "PASTE2 发表在 Genome Research 2023。它保留 FGW 的表达与结构目标，允许部分质量进入匹配，并提供重叠比例选择过程。图中两端各三个点，每点容量 1/3。",
+        "平衡计划要求第三个位置也参与。部分计划取 m=2/3 时，可将前两对各匹配 1/3，第三对各保留 1/3。POT 接口的 m 表示绝对传输质量。"
       ],
       "figure": {
-        "type": "pipeline",
-        "labels": [
-          [
-            "配体 / 受体表达",
-            "带空间位置与容量"
-          ],
-          [
-            "联合分配",
-            "兼容性、距离、竞争"
-          ],
-          [
-            "候选信号网络",
-            "再用独立证据检验"
-          ]
-        ],
-        "caption": "通讯 OT 的质量和计划语义不同于切片配准。箭头是模型推断，不是已经观察到的分子移动。"
-      }
+        "type": "spatial-partial"
+      },
+      "formulas": [
+        {
+          "latex": "\\min_{P\\ge0}F_\\alpha(P)\\quad\\text{s.t.}\\quad P\\mathbf1\\le a,\\quad P^\\top\\mathbf1\\le b,\\quad \\mathbf1^\\top P\\mathbf1=m",
+          "caption": "部分 FGW 直接限制每个位置使用的质量和总运输预算。"
+        },
+        {
+          "latex": "0\\le m\\le\\min(\\|a\\|_1,\\|b\\|_1),\\quad r_{\\rm unused}=a-P\\mathbf1,\\quad c_{\\rm unused}=b-P^\\top\\mathbf1",
+          "caption": "两个剩余向量均非负，可画出哪些区域没有进入匹配。"
+        }
+      ],
+      "algorithm": [
+        "选定或估计重叠预算 m，并初始化满足部分约束的计划。",
+        "线性化 FGW，在同一个部分可行域内求线性 OT 子问题。",
+        "线搜索更新，记录质量预算、未匹配区域与最终目标。"
+      ],
+      "check": {
+        "question": "若真实重叠较少，却把 m 设为完整质量，会出现什么压力？",
+        "answer": "计划必须为独有区域分配目标容量，容易形成额外对应。调小 m 允许这些区域留下剩余质量，同时也可能丢掉部分困难但真实的匹配。"
+      },
+      "sources": [
+        {
+          "title": "PASTE2，Partial Pairwise Slice Alignment",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10538490/"
+        }
+      ]
     },
     {
-      "title": "复现实验之前，先检查混杂和评价单位",
+      "title": "SpaOTsc 用 KL 罚项允许边缘偏离",
       "paragraphs": [
-        "表达预处理会改变 M。总计数归一化、log 变换、高变基因选择和降维，都是建模的一部分：它们分别改变表达幅度、噪声权重和保留下来的特征。若某个高表达区域只是捕获效率更高，原始计数成本可能优先匹配测序深度，而不是组织类型。若把所有 RNA 总数都消掉，真实的总量差异也可能丢失。应比较合理的预处理方案，并检查结果是否只是 library size、线粒体比例或技术批次的投影。",
-        "细胞组成是另一层混杂。同一个 spot 中两种细胞比例改变，会改变表达谱，即使每种细胞内部的状态没有变化；一个 marker 基因的空间梯度也可能仅反映该细胞类型在哪里更常见。可以在可信细胞类型分层后重复分析，或者显式纳入组成估计，同时报告估计误差。组织有不同厚度、缺口和不规则边界时，欧氏距离也未必代表真实可达路径；图距离需要连通性和单位的额外检查。",
-        "评价必须按任务匹配。配准可检查独立地标、未参与优化的区域标注、已知合成对应和覆盖率；空间表达预测应留出基因，并按组织区域或生物样本划分验证；通讯需要独立分子证据；空间基因检测需要检验校准、多重比较和跨样本稳定性。逐点随机划分会让相邻位置的信息互相渗透，多个 spot 也不能自动等同于多个独立生物重复。模型目标低、图好看或边缘残差小，都不能替代这些验证。"
+        "SpaOTsc 发表在 Nature Communications 2020。源端是无坐标的单细胞表达，目标端是空间参考。M 比较共同基因，Dᶜ 描述细胞表达关系，Dˢ 描述参考的空间关系。",
+        "它用边缘 KL 罚项控制关联质量偏离。作者实现先更新结构代价，再求带熵正则的非平衡 OT 子问题并进行更新。ρ 决定偏离边缘需要付多少代价。",
+        "图中单边模型将 α 和 ε 都设为零，只剩运输成本与边缘罚项。其最优质量可直接求导得到，因而可以精确检查“增大 ρ”在这个例子中的含义。"
       ],
       "figure": {
-        "type": "pipeline",
-        "labels": [
-          [
-            "技术与组成混杂",
-            "深度 / 批次 / 细胞比例"
-          ],
-          [
-            "受控验证",
-            "留出基因、区域或个体"
-          ],
-          [
-            "限定结论",
-            "模型关联与生物机制分开"
-          ]
-        ],
-        "caption": "一个可靠结果需要数值正确、任务指标可信和独立生物证据三个层次。"
-      }
+        "type": "spatial-unbalanced"
+      },
+      "formulas": [
+        {
+          "latex": "\\min_{P\\ge0}(1-\\alpha)\\langle M,P\\rangle+\\alpha Q(P;D^c,D^s)+\\rho\\mathrm{KL}(P\\mathbf1\\mid a)+\\rho\\mathrm{KL}(P^\\top\\mathbf1\\mid b)",
+          "caption": "对应原文的结构化非平衡目标。作者数值实现还使用 ε 控制内层熵正则。"
+        },
+        {
+          "latex": "\\mathrm{KL}(u\\mid v)=\\sum_i\\left[u_i\\log(u_i/v_i)-u_i+v_i\\right]",
+          "caption": "广义 KL 包含质量修正项，P 仅要求非负。"
+        },
+        {
+          "latex": "f(p)=p+\\rho\\mathrm{KL}(p\\mid1)+\\rho\\mathrm{KL}(p\\mid0.5),\\qquad p^*=\\sqrt{0.5}\\,e^{-1/(2\\rho)}",
+          "caption": "图中教学极简式的可行域为 p≥0。对 p 求导并令其为零即可得到解。"
+        }
+      ],
+      "check": {
+        "question": "图中 ρ→∞ 时，p 会趋于 1、0.5 还是其他数？",
+        "answer": "趋于 √0.5≈0.7071。两端参考总量不同，单一计划质量无法同时等于 1 与 0.5，KL 罚项形成折中。"
+      },
+      "sources": [
+        {
+          "title": "SpaOTsc，Methods，式 (1)",
+          "url": "https://www.nature.com/articles/s41467-020-15968-5"
+        },
+        {
+          "title": "SpaOTsc 作者实现，usot 与 uot",
+          "url": "https://github.com/zcang/SpaOTsc/blob/master/spaotsc/utils/usot.py"
+        }
+      ]
     },
     {
-      "title": "把论文变成一个可以核对的小实验",
+      "title": "moscot 用正则 FGW 与镜像下降处理空间映射",
       "paragraphs": [
-        "下面的合成例子有两端各十二个位置：源端是一小块网格，目标端包含经旋转平移后的九个位置和三个额外区域。我们手工构造四个基因的表达特征，分别计算特征成本 M 和空间距离矩阵。程序使用平衡 FGW 比较三个 α，再使用部分 FGW 只运输绝对质量 0.75。它展示 PASTE 与 PASTE2 背后的核心取舍，不是这两个方法完整流程或真实数据结果的复现。",
-        "请先预测三个现象，再运行：只保留表达时，会否出现几何不一致的匹配？只保留几何时，额外位置会怎样影响匹配？允许不匹配后，剩余质量集中在哪些区域？程序只断言计划非负、平衡边缘或部分质量预算正确，并打印成本与区域关联；它不对非凸求解器断言全局最优，也不把合成例子的一个数值当作方法优劣证据。之后若要做正式复现，应使用论文发布的数据和软件版本，逐项核对预处理、初始化、损失尺度及评价协议。"
+        "moscot 的 Nature 2025 论文把空间映射写成带熵正则的 FGW。跨数据成本使用共同 RNA 特征，参考端内部距离可由 RNA 与蛋白等联合表征计算，空间端仍使用物理关系。",
+        "论文采用镜像下降求解，图中展示平衡设置的一次教学更新。正则 ε 控制计划熵，步长 η 控制每次更新幅度。α 控制表达与结构的权衡，这三个参数作用不同。",
+        "大规模版本还使用低秩 OT 表示，限制计划的表示规模。改变秩会改变计算开销和可表示的关联结构，复现时应和正则、边缘设置一起记录。"
       ],
       "figure": {
-        "type": "pipeline",
-        "labels": [
-          [
-            "已知合成设置",
-            "12 对 12，含额外区域"
-          ],
-          [
-            "FGW 与部分 FGW",
-            "改变 α 和运输预算"
-          ],
-          [
-            "先核对数学性质",
-            "再分析匹配是否合理"
-          ]
+        "type": "spatial-mirror-descent"
+      },
+      "formulas": [
+        {
+          "latex": "F_\\varepsilon(P)=(1-\\alpha)E(P)+\\alpha Q(P)+\\varepsilon\\sum_{ij}P_{ij}\\log P_{ij},\\quad P\\in U(a,b)",
+          "caption": "按本教程的负熵约定重写原文式 (15)，0log0 取 0。"
+        },
+        {
+          "latex": "G^t=\\nabla F_\\varepsilon(P^t),\\quad K=P^t\\odot e^{-\\eta G^t},\\quad P^{t+1}=\\arg\\min_{P\\in U(a,b)}\\mathrm{KL}(P\\mid K)",
+          "caption": "正初始化上的标准镜像步。KL 投影可通过行列缩放实现，论文的大规模设置还有低秩等选项。"
+        }
+      ],
+      "algorithm": [
+        "在共同 RNA 特征上构造 M，在参考联合表征上构造 Dᶜ，在物理坐标上构造 Dˢ。",
+        "设置 a、b、α、ε，并确定全秩或低秩表示。",
+        "计算当前正则目标梯度，在 KL 几何中更新计划，检查边缘与目标变化。",
+        "利用得到的关联传递标签、基因表达或配对测量的其他模态。"
+      ],
+      "check": {
+        "question": "下方两点例子中，把 ε 从 0.2 调至 1，非对角质量为何增加？",
+        "answer": "完整目标更偏好高熵计划。给定边缘为 0.5 时，非对角元素由约 0.0033 增为 0.1345。α 在此固定为 0。"
+      },
+      "sources": [
+        {
+          "title": "moscot.space.mapping，Methods，式 (14)–(16)",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11864987/"
+        }
+      ]
+    },
+    {
+      "title": "从计划读出基因表达和细胞类型",
+      "paragraphs": [
+        "给定单细胞表达 X，PᵀX 将其汇总到空间位置。若要报告每位置的平均表达，还需除以该位置实际接收的质量。图中同一个 P 同时演示这两个数值。",
+        "单细胞类型用 one-hot 矩阵编码后也可按 P 汇总。保留各类权重可显示混合组成。预测留出基因时，应在构造成本、特征选择和降维之前移除该基因。"
+      ],
+      "figure": {
+        "type": "spatial-expression-readout"
+      },
+      "formulas": [
+        {
+          "latex": "Z=P^\\top X,\\qquad \\widehat X=\\mathrm{diag}(P^\\top\\mathbf1)^{-1}P^\\top X",
+          "caption": "Z 为质量加权汇总，X̂ 为条件均值。仅对正列质量求逆，零列质量记为未覆盖。"
+        },
+        {
+          "latex": "P=\\begin{pmatrix}0.3&0.2\\\\0.1&0.4\\end{pmatrix},\\quad X=\\begin{pmatrix}10\\\\0\\end{pmatrix},\\quad Z=\\begin{pmatrix}3\\\\2\\end{pmatrix},\\quad\\widehat X=\\begin{pmatrix}7.5\\\\10/3\\end{pmatrix}",
+          "caption": "图中数值可由两次加权求和核对。"
+        }
+      ],
+      "check": {
+        "question": "若把整张 P 同时乘 2，Z 和条件均值分别怎样变化？",
+        "answer": "Z 乘 2，列质量也乘 2，因此条件均值保持相同。解释预测值时需要注明使用的汇总和归一化约定。"
+      },
+      "sources": [
+        {
+          "title": "moscot.space.mapping，Methods，式 (14)–(16)",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11864987/"
+        },
+        {
+          "title": "SpaOTsc，Methods，式 (1)",
+          "url": "https://www.nature.com/articles/s41467-020-15968-5"
+        }
+      ]
+    },
+    {
+      "title": "COMMOT 把多个配体的分配接到同一受体容量",
+      "paragraphs": [
+        "COMMOT 发表在 Nature Methods 2023。它把“配体种类、发送位置”合成行索引，把“受体种类、接收位置”合成列索引。a、b 记录这些位置的可用表达量。",
+        "令 μ、ν 记录未使用量。共享受体对应同一列容量，所有配体都计入该列和。不能结合或超出空间阈值的边设为禁配，数值核中的对应元素为零。",
+        "论文等熵系数情形可用带未匹配项的稳定 Sinkhorn 更新。求得每个配体—受体对的计划后，可按接收位置求和得到候选信号强度，并聚合为区域联系。"
+      ],
+      "figure": {
+        "type": "spatial-competition"
+      },
+      "formulas": [
+        {
+          "latex": "\\min_{P,\\mu,\\nu\\ge0}\\langle C,P\\rangle+\\rho(\\|\\mu\\|_1+\\|\\nu\\|_1)+\\varepsilon[h(P)+h(\\mu)+h(\\nu)]",
+          "caption": "对应论文 Methods 式 (2) 的等熵系数写法，h(z)=Σz(logz−1)。"
+        },
+        {
+          "latex": "P\\mathbf1=a-\\mu,\\qquad P^\\top\\mathbf1=b-\\nu,\\qquad P_{ij}=0\\ \\text{若该边禁配}",
+          "caption": "非负剩余量使计划行列和均不超过可用量。总传输量由目标与容量共同决定。"
+        },
+        {
+          "latex": "K=e^{-C/\\varepsilon},\\quad u\\leftarrow\\frac{a}{Kv+e^{-\\rho/\\varepsilon}},\\quad v\\leftarrow\\frac{b}{K^\\top u+e^{-\\rho/\\varepsilon}},\\quad P=\\mathrm{diag}(u)K\\mathrm{diag}(v)",
+          "caption": "ε>0 且三个熵系数相同，u、v 为正缩放向量。剩余量为 μ=u exp(−ρ/ε)、ν=v exp(−ρ/ε)，除法逐元素进行。稳定实现使用对数域。"
+        },
+        {
+          "latex": "f(p_1,p_2)=0.2p_1+0.8p_2+0.5[(1-p_1)+(1-p_2)+(1-p_1-p_2)]",
+          "caption": "图中设置 ε=0、0≤p₁,p₂≤1、p₁+p₂≤1，可手算得到 p₁=1、p₂=0。"
+        }
+      ],
+      "algorithm": [
+        "按分子种类与位置展平供给、受体容量和成本。",
+        "通过相容性数据库和空间阈值筛掉禁配边。",
+        "联合更新缩放变量，恢复计划和未使用量，检查容量约束。",
+        "按分子对、发送区域或接收区域汇总，结合蛋白或扰动证据验证候选联系。"
+      ],
+      "check": {
+        "question": "若图中受体容量从 1 改为 0.5，在相同无熵设置下怎样分配？",
+        "answer": "仍先使用便宜的 L₁，得到 p₁=0.5、p₂=0。共享容量限制两种分子的总接收量。"
+      },
+      "sources": [
+        {
+          "title": "COMMOT，Methods，式 (1)–(3)",
+          "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9911355/"
+        }
+      ]
+    },
+    {
+      "title": "读出结果之前，核对它回答的问题",
+      "paragraphs": [
+        "下面的对应表把目标、约束与输出连起来。相同的矩阵形状可以有不同语义，报告时应写明行列代表位置、细胞还是分子种类，以及质量的定义。",
+        "数值检查后，再用独立地标、留出基因或生物样本核对任务效果。空间邻近会造成观测相关，按区域或个体划分验证更便于检查跨区域或个体的泛化。"
+      ],
+      "table": {
+        "headers": [
+          "方法",
+          "目标与约束",
+          "主要求解环节",
+          "读出"
         ],
-        "caption": "先做可核验的小实验，可以把接口理解错误与生物解释错误分开排查。"
+        "rows": [
+          [
+            "PASTE",
+            "表达 + 片内结构，硬边缘",
+            "条件梯度 + 线性 OT + 线搜索",
+            "P、刚性坐标变换、中心整合"
+          ],
+          [
+            "PASTE2",
+            "相同 FGW，边缘上界与质量预算",
+            "部分 OT 子问题",
+            "P、未匹配区域、叠放坐标"
+          ],
+          [
+            "SpaOTsc",
+            "结构目标 + 边缘 KL 罚项",
+            "线性化、正则 UOT 与更新",
+            "细胞位置关联及表达预测"
+          ],
+          [
+            "moscot.space.mapping",
+            "多模态结构 + 跨数据表达 + 熵",
+            "镜像下降，全秩或低秩选项",
+            "空间表达与类型权重"
+          ],
+          [
+            "COMMOT",
+            "距离、未匹配代价与共享容量",
+            "带容量剩余项的缩放迭代",
+            "分子对计划与候选通讯强度"
+          ]
+        ]
+      },
+      "check": {
+        "question": "图上的“关联较强”要变成机制结论，还需要哪类信息？",
+        "answer": "需要与具体任务对应的独立证据。切片配准可检查独立地标，空间表达可验证留出基因，通讯机制可使用蛋白测量或扰动实验。"
       }
     }
   ],
-  "lab": "structure",
-  "labTask": "只旋转右侧图，观察片内距离保持而坐标改变；再增加形变，观察结构失配。该四节点实验只解释结构匹配的直觉。空间表达、额外区域和平衡/部分 FGW 的差别，请运行下面的合成 Python 实验。",
-  "code": "import numpy as np\nimport ot\n\nrng = np.random.default_rng(16)\nS_a = np.array([(x, y) for y in range(3) for x in range(4)], dtype=float)\nn = len(S_a)\ntheta = 0.8\nR = np.array([[np.cos(theta), -np.sin(theta)],\n              [np.sin(theta), np.cos(theta)]])\n# 目标前九个点来自源端前九个位置，最后三个代表额外组织区域。\nS_b = np.vstack([S_a[:9] @ R.T + [6., -3.],\n                 [[12., 7.], [13., 7.], [12., 8.]]])\nX_a = np.column_stack([2. + 8. * (S_a[:, 0] < 1.5),\n                       2. + 6. * (S_a[:, 1] < 1.),\n                       2. + 3. * S_a[:, 0],\n                       np.full(n, 3.)])\nX_b = np.vstack([X_a[:9] + rng.uniform(0., 0.3, (9, 4)),\n                 [[2., 2., 2., 18.]] * 3])\n# 教学预处理：每行归一化再 log1p，真实数据需核对具体协议。\ndef expression_features(X):\n    return np.log1p(100. * X / X.sum(axis=1, keepdims=True))\n\nE_a, E_b = expression_features(X_a), expression_features(X_b)\nM = ot.dist(E_a, E_b, metric='sqeuclidean')\nM /= max(float(np.median(M[M > 0])), 1e-12)\nD_a = ot.dist(S_a, S_a, metric='euclidean')\nD_b = ot.dist(S_b, S_b, metric='euclidean')\n# 用共同物理尺度；不要分别把含异常区域的两张距离表缩到最大值 1。\nscale = float(np.median(D_a[D_a > 0]))\nD_a, D_b = D_a / scale, D_b / scale\na = b = np.ones(n) / n\nassert np.isclose(a.sum(), b.sum())\n\ndef fgw_objective(P, alpha):\n    row, col = P.sum(axis=1), P.sum(axis=0)\n    structural = ((row @ (D_a ** 2) @ row)\n                  + (col @ (D_b ** 2) @ col)\n                  - 2. * np.sum((D_a @ P @ D_b.T) * P))\n    return (1. - alpha) * np.sum(P * M) + alpha * structural\n\nfor alpha in [0.0, 0.2, 1.0]:\n    P = ot.gromov.fused_gromov_wasserstein(\n        M, D_a, D_b, a, b, alpha=alpha, loss_fun='square_loss',\n        max_iter=200, tol_rel=1e-10, tol_abs=1e-10)\n    assert np.all(P >= -1e-12)\n    assert np.allclose(P.sum(axis=1), a, atol=1e-8)\n    assert np.allclose(P.sum(axis=0), b, atol=1e-8)\n    print('平衡 alpha=', alpha, '目标=', fgw_objective(P, alpha),\n          '关联到额外区域的质量=', P[:, 9:].sum())\n\nalpha, mass = 0.2, 0.75\nQ = ot.gromov.partial_fused_gromov_wasserstein(\n    M, D_a, D_b, a, b, m=mass, alpha=alpha,\n    loss_fun='square_loss', numItermax=200, tol=1e-9)\nassert Q.shape == (n, n)\nassert np.all(Q >= -1e-12)\nassert np.isclose(Q.sum(), mass, atol=1e-8)\nassert np.all(Q.sum(axis=1) <= a + 1e-8)\nassert np.all(Q.sum(axis=0) <= b + 1e-8)\nprint('部分计划总质量=', Q.sum(), '额外区域质量=', Q[:, 9:].sum())\nprint('未匹配源质量=', np.round(a - Q.sum(axis=1), 4))\nprint('未匹配目标质量=', np.round(b - Q.sum(axis=0), 4))\nprint('部分计划目标=', fgw_objective(Q, alpha))\n# 部分计划的实际列和不必等于 b；表达聚合要使用实际关联质量。\ncol_mass = Q.sum(axis=0)\npredicted = np.divide(Q.T @ X_a, col_mass[:, None],\n                      out=np.full_like(X_b, np.nan),\n                      where=col_mass[:, None] > 1e-12)\nassert np.isfinite(predicted[col_mass > 1e-12]).all()\nprint('有表达预测的位置数=', np.count_nonzero(col_mass > 1e-12))\nprint('说明：这是教学合成模型，未复现完整 PASTE/PASTE2，也无全局最优保证。')",
-  "codeNotes": "平衡计划无论怎样调 α，都必须给目标额外区域分配其全部边缘质量；这是可行域的结果，不是求解器犯错。部分 FGW 允许不匹配，计划总量固定为 0.75，但具体哪个位置被留下仍受特征、结构和非凸初始化影响。代码按实际列质量聚合表达，零关联列返回 NaN 表示未能预测，而不是补成看似确定的零。M 的表达尺度与 D 的空间尺度分别说明，α 才有可解释的相对作用。",
+  "lab": "fgw",
+  "labTask": "先将 α 设为 0，观察表达成本如何决定候选计划。再提高 α，逐步查看当前 P、结构梯度、EMD 子问题和线搜索 γ。每轮核对目标变化与边缘残差，并解释哪些配对因结构信息而改变。",
+  "code": "import numpy as np\nimport ot\nfrom scipy.optimize import linprog\n\n# 三个合成 spot，B 交换前两行表达。\nX = np.array([[3., 1.], [1., 3.], [2., 2.]])\nY = X[[1, 0, 2]]\npositions = np.array([0., 1., 3.])\nD = np.abs(positions[:, None] - positions[None, :])\nM = ot.dist(X, Y, metric='sqeuclidean') / 8.\na = b = np.ones(3) / 3.\n\ndef structural_cost(P, DA=D, DB=D):\n    row, col = P.sum(axis=1), P.sum(axis=0)\n    return float(row @ (DA**2) @ row + col @ (DB**2) @ col\n                 - 2. * np.sum((DA @ P @ DB.T) * P))\n\ndef objective(P, alpha, cost=M, DA=D, DB=D):\n    return (1.-alpha) * np.sum(P*cost) + alpha * structural_cost(P, DA, DB)\n\nkeep = np.eye(3) / 3.\nswap = np.eye(3)[[1, 0, 2]] / 3.\nassert np.isclose(np.sum(keep*M), 2./3.)\nassert np.isclose(structural_cost(keep), 0.)\nassert np.isclose(np.sum(swap*M), 0.)\nassert np.isclose(structural_cost(swap), 4./9.)\nfor alpha in [0.2, 0.6, 0.8]:\n    print('alpha', alpha, 'keep', objective(keep, alpha),\n          'swap', objective(swap, alpha))\nassert np.isclose(objective(keep, .6), objective(swap, .6))\n\n# 条件梯度的第一轮，α=0.5。\nalpha = .5\nP = np.outer(a, b)\nL = (D**2 @ a)[:, None] + (D**2 @ b)[None, :] - 2.*D @ P @ D.T\nG = (1.-alpha)*M + 2.*alpha*L\nS = ot.emd(a, b, G)\ndirection = S-P\nf0 = objective(P, alpha)\nf1 = objective(S, alpha)\nfhalf = objective(P+.5*direction, alpha)\nquadratic = 2.*(f1+f0-2.*fhalf)\nlinear = f1-f0-quadratic\ncandidates = [0., 1.]\nif quadratic > 0:\n    candidates.append(float(np.clip(-linear/(2.*quadratic), 0., 1.)))\ngamma = min(candidates, key=lambda t: objective(P+t*direction, alpha))\nupdated = P+gamma*direction\nassert np.allclose(updated.sum(axis=1), a)\nassert np.allclose(updated.sum(axis=0), b)\nassert objective(updated, alpha) <= f0 + 1e-10\nassert np.isclose(f0, 1.5)\nassert np.isclose(objective(updated, alpha), 2./9.)\nprint('gradient', np.round(G, 4), 'EMD candidate', S, sep='\\n')\nprint('gamma', gamma, 'objective', f0, '->', objective(updated, alpha))\n\n# 确认上述梯度在固定边缘的可行方向上正确。\nh = 1e-6\nnumeric = (objective(P+h*direction, alpha)-objective(P-h*direction, alpha))/(2*h)\nassert np.isclose(numeric, np.sum(G*direction), atol=1e-8)\n\n# PASTE2 思路的三点教学特例。两个位置相同，第三个相距很远。\nsource = np.array([[0.], [1.], [2.]])\ntarget = np.array([[0.], [1.], [8.]])\ncost = ot.dist(source, target, metric='sqeuclidean')\nDA = ot.dist(source, source, metric='euclidean')\nDB = ot.dist(target, target, metric='euclidean')\nmass = 2./3.\nQ = ot.gromov.partial_fused_gromov_wasserstein(\n    cost, DA, DB, a, b, m=mass, alpha=.2,\n    loss_fun='square_loss', numItermax=200, tol=1e-10)\nassert np.all(Q >= -1e-12)\nassert np.all(Q.sum(axis=1) <= a+1e-8)\nassert np.all(Q.sum(axis=0) <= b+1e-8)\nassert np.isclose(Q.sum(), mass, atol=1e-8)\nprint('partial plan', Q, 'unused source', a-Q.sum(axis=1),\n      'unused target', b-Q.sum(axis=0), sep='\\n')\n\n# 单边非平衡模型的解析解，ε=0。\nfor rho in [.1, 1., 10.]:\n    p = np.sqrt(.5)*np.exp(-1./(2.*rho))\n    assert np.isclose(1.+rho*(np.log(p)+np.log(p/.5)), 0.)\n    print('rho', rho, 'optimal mass', p)\n\n# α=0 的两点熵正则特例，用 POT 核对图中数字。\nfor epsilon in [.2, 1.]:\n    off = 1./(2.*(1.+np.exp(1./epsilon)))\n    expected = np.array([[.5-off, off], [off, .5-off]])\n    regularized = ot.sinkhorn(\n        np.ones(2)/2., np.ones(2)/2., np.array([[0., 1.], [1., 0.]]),\n        epsilon, method='sinkhorn_log', stopThr=1e-12)\n    assert np.allclose(regularized, expected, atol=1e-10)\n    print('epsilon', epsilon, 'plan', regularized, sep='\\n')\n\n# 空间表达的质量汇总与条件均值。\nmapping = np.array([[.3, .2], [.1, .4]])\nexpression = np.array([[10.], [0.]])\naggregate = mapping.T @ expression\ncolumn_mass = mapping.sum(axis=0)\nmean_expression = aggregate / column_mass[:, None]\nassert np.allclose(aggregate.ravel(), [3., 2.])\nassert np.allclose(mean_expression.ravel(), [7.5, 10./3.])\nprint('aggregate', aggregate.ravel(), 'conditional mean', mean_expression.ravel())\n\n# COMMOT 共享容量的无熵教学子问题。\nsolution = linprog(\n    [-.8, -.2], A_ub=[[1., 1.]], b_ub=[1.],\n    bounds=[(0., 1.), (0., 1.)], method='highs')\nassert solution.success\nassert np.allclose(solution.x, [1., 0.])\nprint('ligand allocation', solution.x, 'full objective', 1.5+solution.fun)\nprint('All examples use synthetic data; paper-specific preprocessing is documented separately.')\n",
+  "codeNotes": "代码核对各图的三点成本、FGW 首轮梯度与线搜索、部分质量预算、单边 KL 折中、熵正则解、表达聚合和共享容量。可修改 α、m、ρ、ε 后，先写下预测，再运行比较。合成例子省略作者流程中的数据预处理与大规模实现。",
   "pitfalls": [
-    "把一个 spot 当成一个已被追踪的细胞。spot 可能混合多细胞，跨切片关联不是个体身份认证。",
-    "把 P_ij 直接称为校准的生物概率。它首先是模型关联质量；行归一化也不自动带来概率校准。",
-    "仅调 α，不检查特征与结构成本的尺度；相同 α 在不同预处理下可表示完全不同的偏好。",
-    "把 PASTE2 的重叠比例与 POT 的绝对质量参数混淆。只有两端总质量为 1 时数值可直接重合。",
-    "非平衡或部分计划仍除以预设 a、b。计算条件关联或均值时应检查实际行列和以及零质量。",
-    "将重建表达、候选通讯、基因空间分数或时序关联当成直接测量和因果证据。",
-    "在建模中使用某个基因，再用同一基因的空间图证明预测准确；应按任务留出基因、区域或生物样本。"
+    "M 的行列跨两组样本，Dᴬ、Dᴮ 的行列分别位于同一组内部，索引顺序需要一致。",
+    "FGW 中 α 乘结构项，1−α 乘表达项，成本尺度会改变参数含义。",
+    "部分模型的 m 为绝对质量，非平衡模型的 ρ 为罚项系数，二者对应不同约束。",
+    "条件梯度中的线性子问题有精确解，完整 FGW 的全局最优性仍需另行判断。",
+    "空间表达均值需使用实际列质量，零质量位置需要记录为未覆盖。",
+    "spot、细胞和分子容量的生物学含义不同，结果应沿建模对象解释。"
   ],
   "quiz": {
-    "question": "两张切片只有部分区域重叠。平衡 FGW 与部分 FGW 最关键的差异是什么？",
+    "question": "PASTE 一轮条件梯度中，线性 OT 子问题为什么能使用 EMD 求解？",
     "options": [
-      "部分 FGW 一定找到全局最优",
-      "部分 FGW 不使用空间信息",
-      "部分 FGW 允许一部分质量不参与匹配，并规定运输总预算",
-      "平衡 FGW 的 α=1 表示只使用表达"
+      "因为原始 FGW 一直是线性目标",
+      "因为固定当前梯度后，候选计划只出现在内积 ⟨G,S⟩ 中，边缘约束仍为线性",
+      "因为 α 只允许取 0",
+      "因为三点例子的最优解总是唯一"
     ],
-    "answer": 2,
-    "explanation": "改变的核心是可行域：平衡计划强制两边缘相等，部分计划将边缘变为上界并固定运输质量 m。两者都可包含结构项，且一般仍是非凸问题。"
+    "answer": 1,
+    "explanation": "当前 P 决定固定矩阵 G，子问题在同一运输多面体上最小化 ⟨G,S⟩。随后仍需回到二次 FGW 目标进行线搜索。"
   },
   "exercise": {
-    "question": "你用 scRNA-seq 参考预测空间样本中基因 G 的表达，并看到清晰的组织边界。请写出一个可核验评价方案：如何避免 G 泄漏、如何处理空间相关、至少两个混杂检查，以及允许和不允许得出的结论。",
-    "answer": "应先从建立映射的共同基因、特征选择和降维输入中移除 G，再用剩余信息预测它；若特征选择曾使用全量 G，也需重做。用独立组织区域或生物个体做验证，避免仅逐点随机划分；可以同时报告留出区域的相关性、误差与位置覆盖率。检查预测是否只是总计数或捕获效率的代理，并在可行时按细胞组成或组织类型分层；还要与简单邻域平滑、均值和不使用 OT 的基线比较。清晰边界只能说明在指定协议下有预测能力，不能说明 G 的边界已被直接测得、由某信号因果控制或在每个个体中成立。若部分计划某列没有关联质量，应明确记为未覆盖，不能按预测值零计入改善。"
+    "question": "沿用图中的两份三点候选计划，把表达成本 M 乘 2。求两条目标曲线新的交点，并解释 α=0.7 时哪一份更便宜。",
+    "answer": "保持结构计划变为 F_keep=(1−α)×4/3，交换计划仍为 F_swap=α×4/9。令两者相等，得 12(1−α)=4α，因此 α=3/4。取 α=0.7，保持结构计划为 0.4，交换计划为 14/45≈0.3111，交换计划更便宜。此计算比较两份给定计划，完整优化仍会遍历其他可行解。"
   },
   "references": [
     {
-      "title": "PASTE — Alignment and integration of spatial transcriptomics data（Nature Methods, 2022）",
-      "url": "https://www.nature.com/articles/s41592-022-01459-6"
-    },
-    {
-      "title": "PASTE 一手全文（PMC）",
+      "title": "PASTE，Methods M1.1.1，式 (1)–(2)",
       "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9334025/"
     },
     {
-      "title": "PASTE2 — Partial alignment of multislice spatially resolved transcriptomics data（Genome Research, 2023）",
+      "title": "PASTE2，Partial Pairwise Slice Alignment",
       "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10538490/"
     },
     {
-      "title": "SpaOTsc — Inferring spatial and signaling relationships between cells from single cell transcriptomic data（Nature Communications, 2020）",
+      "title": "SpaOTsc，Methods，式 (1)",
       "url": "https://www.nature.com/articles/s41467-020-15968-5"
     },
     {
-      "title": "moscot — Mapping cells through time and space with moscot（Nature, 2025）",
+      "title": "SpaOTsc 作者实现，usot 与 uot",
+      "url": "https://github.com/zcang/SpaOTsc/blob/master/spaotsc/utils/usot.py"
+    },
+    {
+      "title": "moscot.space.mapping，Methods，式 (14)–(16)",
       "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11864987/"
     },
     {
-      "title": "moscot 官方文档",
-      "url": "https://moscot.readthedocs.io/en/latest/"
-    },
-    {
-      "title": "COMMOT — Screening cell–cell communication in spatial transcriptomics via collective optimal transport（Nature Methods, 2023）",
+      "title": "COMMOT，Methods，式 (1)–(3)",
       "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9911355/"
     },
     {
-      "title": "PASTE2 作者代码与教程（当前入口指向 Paste3）",
-      "url": "https://github.com/raphael-group/paste2"
-    },
-    {
-      "title": "POT gromov 模块（含 FGW 与部分 FGW）",
+      "title": "POT gromov 模块，FGW 与部分 FGW",
       "url": "https://pythonot.github.io/gen_modules/ot.gromov.html"
     }
   ]

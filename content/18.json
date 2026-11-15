@@ -1,0 +1,318 @@
+{
+  "id": "18",
+  "slug": "chordedit",
+  "title": "ChordEdit：一步编辑背后的二次优化",
+  "subtitle": "从一个可求导的目标，算出一次图像编辑的方向。",
+  "stage": "论文精读",
+  "minutes": 40,
+  "prerequisites": [
+    "第 04 章的 W₂ 与第 13 章的梯度",
+    "向量求导与二次函数",
+    "噪声预测、速度预测是不同模型输出"
+  ],
+  "goals": [
+    "分清动态 OT 理想问题与实际局部代理问题",
+    "从一阶条件推导 Chord 控制方向",
+    "核对一步更新、批量模型调用与可选增强",
+    "用反例判断“低能量”结论的适用范围"
+  ],
+  "sections": [
+    {
+      "title": "1 · 要优化的，是潜变量的编辑方向",
+      "paragraphs": [
+        "ChordEdit 是 CVPR 2026 Oral。广工本科生卢梁司为第一作者。方法使用预训练生成模型，在 VAE 潜空间编辑图像。",
+        "输入是源图像和两段提示。输出应符合目标提示，同时尽量保留其余内容。算法选择编辑方向，不重新训练生成模型。"
+      ],
+      "table": {
+        "headers": [
+          "符号",
+          "含义"
+        ],
+        "rows": [
+          [
+            "x源",
+            "固定的源图潜变量"
+          ],
+          [
+            "c源、c目标",
+            "源提示与目标提示"
+          ],
+          [
+            "t、δ",
+            "模型查询时刻与短时间窗口，0≤δ≤t"
+          ],
+          [
+            "u、λ",
+            "编辑方向与一次更新的步长"
+          ]
+        ]
+      },
+      "figure": {
+        "type": "chord-state"
+      },
+      "sources": [
+        {
+          "title": "作者项目页：Oral 信息",
+          "url": "https://chordedit.github.io/"
+        },
+        {
+          "title": "广工校方：本科生身份",
+          "url": "https://math.gdut.edu.cn/info/1040/4335.htm"
+        }
+      ],
+      "check": {
+        "question": "u 是图像像素、网络参数，还是潜变量的变化方向？",
+        "answer": "是潜变量的变化方向。模型参数保持固定。"
+      }
+    },
+    {
+      "title": "2 · 动态 OT 提供“少绕路”的理想目标",
+      "paragraphs": [
+        "动态 OT 同时选择密度路径 ρ 和速度场 u，在满足起终分布与连续性方程时，最小化总动能。",
+        "固定端点的一条直线，比绕出去再返回更省平方速度积分。ChordEdit 借用这个原则，构造稳定的局部方向；实际算法并未精确求解下面的无限维问题。"
+      ],
+      "formula": "\\min_{\\rho,u}\\frac12\\int_0^1\\int\\|u_s(x)\\|^2\\rho_s(x)\\,dx\\,ds\\quad\\mathrm{s.t.}\\quad\\partial_s\\rho_s+\\nabla\\!\\cdot(\\rho_su_s)=0",
+      "caption": "ρ₀、ρ₁ 为给定端点分布。这里用 s 表示传输路径时间，避免与模型查询时刻 t 混淆。对应原文式(4.1)。",
+      "figure": {
+        "type": "chord-energy"
+      },
+      "sources": [
+        {
+          "title": "ChordEdit 原文 §4.1，式(4.1)",
+          "url": "https://openaccess.thecvf.com/content/CVPR2026/papers/Lu_ChordEdit_One-Step_Low-Energy_Transport_for_Image_Editing_CVPR_2026_paper.pdf"
+        }
+      ],
+      "check": {
+        "question": "仅令 u=0，为什么不能自动取得理想问题的可用解？",
+        "answer": "u=0 的确没有动能，但无法把不同的起终分布连接起来。端点约束不能省略。"
+      }
+    },
+    {
+      "title": "3 · 如何得到一个可计算的方向 R",
+      "paragraphs": [
+        "在源图锚点上加共享噪声。分别查询源提示与目标提示，取两输出之差，再用 Bₜ 换到同一比较空间。",
+        "这样获得的 R 是可计算代理，不是真实最优编辑场。论文用零均值误差模型连接两者；这是一项建模假设。"
+      ],
+      "formulas": [
+        {
+          "latex": "R(x_\\tau,t)=\\mathbb E_{z\\sim K_t(\\cdot\\mid x_\\tau)}\\!\\left[B_t\\big(Q(z,t,c_{\\rm tar})-Q(z,t,c_{\\rm src})\\big)\\right]",
+          "caption": "Q 为模型原生输出，Kₜ 为加噪核。Bₜ 由模型参数化定义，转换到控制方向的单位；共享噪声估计期望。作者代码先转成预测干净潜变量，再做提示差分。图中残差是直接给定的教学数值。对应式(3.3)。"
+        },
+        {
+          "latex": "R(x_\\tau,t)=u_t(x_\\tau)+\\epsilon_t,\\qquad\\mathbb E[\\epsilon_t]=0",
+          "caption": "原文式(4.2)的测量假设；不表示任意模型残差都无偏。"
+        }
+      ],
+      "figure": {
+        "type": "chord-query"
+      },
+      "sources": [
+        {
+          "title": "ChordEdit 原文 §3.2–3.3，式(3.3)；§4.1，式(4.2)",
+          "url": "https://openaccess.thecvf.com/content/CVPR2026/papers/Lu_ChordEdit_One-Step_Low-Energy_Transport_for_Image_Editing_CVPR_2026_paper.pdf"
+        }
+      ],
+      "check": {
+        "question": "为什么不能直接相减一个模型的噪声预测与另一个模型的速度预测？",
+        "answer": "它们不在同一参数化或单位中。必须先明确转换到什么比较空间。"
+      }
+    },
+    {
+      "title": "4 · 写出局部代理，并用一阶条件求解",
+      "paragraphs": [
+        "固定锚点与短窗口，把待求方向 u 看成常向量。目标用两项约束它：不要远离已有估计，也要接近窗口内的新观测。",
+        "对 u 求导，令梯度为零。Hessian 为正定矩阵，所以这是该二次代理的唯一最小点。",
+        "图中先画下一节的离散代理：它用两个残差替代历史估计与窗口积分。连续目标使用本节闭式解。"
+      ],
+      "formulas": [
+        {
+          "latex": "\\Phi_t(u)=t\\|u-\\widehat u_{t-\\delta}\\|^2+\\int_{t-\\delta}^{t}\\|u-R(\\xi)\\|^2\\,d\\xi",
+          "caption": "省略固定锚点 xτ。t>0、δ≥0。第一项为递归先验，第二项为观测拟合；对应式(4.3)。"
+        },
+        {
+          "latex": "\\nabla_u\\Phi_t=2(t+\\delta)u-2t\\widehat u_{t-\\delta}-2\\int_{t-\\delta}^{t}R(\\xi)d\\xi=0",
+          "caption": "积分区间长度为 δ，因此 u 的系数是 t+δ。"
+        },
+        {
+          "latex": "u_t^*=\\frac{t\\widehat u_{t-\\delta}+\\int_{t-\\delta}^{t}R(\\xi)d\\xi}{t+\\delta},\\qquad\\nabla_u^2\\Phi_t=2(t+\\delta)I\\succ0",
+          "caption": "对应式(4.4)。唯一性属于这个局部代理；不是完整动态 OT 的全局最优证明。"
+        }
+      ],
+      "figure": {
+        "type": "chord-quadratic",
+        "caption": "下一节离散代理的数值图：t=0.75、δ=0.25、R₋=(1,0)、R₊=(1,4)，唯一最小点为 u=(1,1)，目标值为3。连续积分目标不能仅凭这两个观测值确定。"
+      },
+      "sources": [
+        {
+          "title": "ChordEdit 原文 §4.2，式(4.3)–(4.4)",
+          "url": "https://openaccess.thecvf.com/content/CVPR2026/papers/Lu_ChordEdit_One-Step_Low-Energy_Transport_for_Image_Editing_CVPR_2026_paper.pdf"
+        }
+      ],
+      "check": {
+        "question": "若把分母误写成 t，哪里会出错？",
+        "answer": "观测积分里的 u 项贡献 δu。漏掉它会使一阶条件不成立，权重之和也不再为 1。"
+      }
+    },
+    {
+      "title": "5 · 两个近似，把积分解变成两次时刻查询",
+      "paragraphs": [
+        "实际没有保存完整历史场。论文以前一时刻观测替代递归估计，并用右端点近似窗口积分。精确代理解由此变成可计算的加权公式。",
+        "例：t=0.75、δ=0.25，两个残差是 (1,0) 和 (1,4)。先按 0.75、0.25 平均向量，得到 (1,1)。不是先平均它们的范数。"
+      ],
+      "formulas": [
+        {
+          "latex": "\\widehat u_{t-\\delta}\\approx R(t-\\delta),\\qquad\\int_{t-\\delta}^{t}R(\\xi)d\\xi\\approx\\delta R(t)",
+          "caption": "第一项是历史估计替换，第二项是右端点求积。"
+        },
+        {
+          "latex": "\\widehat u_t=\\frac{tR(t-\\delta)+\\delta R(t)}{t+\\delta}=aR_-+(1-a)R_+,\\quad a=\\frac{t}{t+\\delta}",
+          "caption": "实际控制式(4.5)。在 t>0、0≤δ≤t 时权重非负且和为 1。"
+        }
+      ],
+      "figure": {
+        "type": "chord-weights"
+      },
+      "sources": [
+        {
+          "title": "ChordEdit 原文 §4.2，式(4.5)",
+          "url": "https://openaccess.thecvf.com/content/CVPR2026/papers/Lu_ChordEdit_One-Step_Low-Energy_Transport_for_Image_Editing_CVPR_2026_paper.pdf"
+        }
+      ],
+      "check": {
+        "question": "δ=0 时退化成什么？",
+        "answer": "两查询时刻重合，û=R(t)，即未平滑的当前残差。"
+      }
+    },
+    {
+      "title": "6 · 一步更新，究竟算了几次模型",
+      "paragraphs": [
+        "方向算出后，进行一次潜变量更新。可选增强再调用目标提示模型，不属于前面的运输更新。",
+        "作者实现将“两个时刻×两个提示”放入一个批次。论文把该批次计为运输 NFE=1；默认再加一次增强，报告 NFE=2。"
+      ],
+      "formula": "x_{\\rm pred}=x_{\\rm src}+\\lambda\\widehat u_t",
+      "caption": "λ 是编辑步长，不能与噪声窗口 δ 混同。增强后再解码成图像。",
+      "algorithm": [
+        "编码源图，固定潜变量锚点与随机噪声。",
+        "在 t−δ、t 查询两提示；统一输出参数化并作差。",
+        "按式(4.5)计算 û。",
+        "执行 xpred=xsrc+λû。",
+        "可选：一次目标提示 predict-x₀ 增强；解码。"
+      ],
+      "figure": {
+        "type": "chord-compute"
+      },
+      "sources": [
+        {
+          "title": "ChordEdit 原文 Algorithm 1、§4.3–5.1",
+          "url": "https://openaccess.thecvf.com/content/CVPR2026/papers/Lu_ChordEdit_One-Step_Low-Energy_Transport_for_Image_Editing_CVPR_2026_paper.pdf"
+        }
+      ],
+      "check": {
+        "question": "“一步运输”是否等于模型只看了一组输入，或默认仅一次网络调用？",
+        "answer": "都不是。运输批次含四组条件；默认增强另加一次网络调用。"
+      }
+    },
+    {
+      "title": "7 · 哪个能量结论成立，哪个不成立",
+      "paragraphs": [
+        "凸性直接给出下面的加权能量上界。它没有保证平滑能量总低于当前 R₊ 的能量，也没有保证一次 Euler 更新精确到达目标。",
+        "反例：保持权重 0.75、0.25，改成 R₋=(1,4)、R₊=(1,0)。当前能量为 1，平滑结果为 (1,3)，能量为 10；但加权上界为 13，Jensen 界仍成立。"
+      ],
+      "formula": "\\|aR_-+(1-a)R_+\\|^2\\le a\\|R_-\\|^2+(1-a)\\|R_+\\|^2",
+      "caption": "成立条件：0≤a≤1。减少高频波动可以改善大步更新；编辑质量仍需由目标模型和实验验证。",
+      "figure": {
+        "type": "chord-counter"
+      },
+      "sources": [
+        {
+          "title": "ChordEdit 原文 §4.2 的平滑与稳定性讨论",
+          "url": "https://openaccess.thecvf.com/content/CVPR2026/papers/Lu_ChordEdit_One-Step_Low-Energy_Transport_for_Image_Editing_CVPR_2026_paper.pdf"
+        }
+      ],
+      "check": {
+        "question": "为什么不能把式(4.5)直接当作固定核卷积，并交换时间求导？",
+        "answer": "固定 δ 时，权重 a=t/(t+δ) 也随 t 变。时间导数含 a′(t)[R(t−δ)−R(t)]。若要证明时间导数收缩，需要处理这一项或补充假设。"
+      }
+    },
+    {
+      "title": "8 · 用可核算的例子检查自己是否理解",
+      "paragraphs": [
+        "下方实验只给合成残差，不运行图像网络。图上同时显示向量平均、二次目标的最小点和能量界。",
+        "先预测：当前已稳定、旧估计有扰动时，平均后会怎样？按“反例”核对。再改变 δ，检查公式、最小点与向量端点是否同步变化。"
+      ],
+      "table": {
+        "headers": [
+          "输入",
+          "û",
+          "当前能量",
+          "平滑能量",
+          "加权上界"
+        ],
+        "rows": [
+          [
+            "R₋=(1,0)，R₊=(1,4)",
+            "(1,1)",
+            "17",
+            "2",
+            "5"
+          ],
+          [
+            "R₋=(1,4)，R₊=(1,0)",
+            "(1,3)",
+            "1",
+            "10",
+            "13"
+          ]
+        ]
+      },
+      "caption": "表中固定 t=0.75、δ=0.25。这里的能量是向量平方范数，不是论文图像基准分数。",
+      "check": {
+        "question": "关闭可选增强，仅看运输更新：若 λ=0，即使方向非零，是否发生编辑？",
+        "answer": "运输后的潜变量仍为 x源，因为 λû=0。这不等价于图像逐像素还原；后续 VAE 解码仍可能有重建误差。"
+      }
+    }
+  ],
+  "lab": "chord",
+  "labTask": "观察两个向量如何平均，再核对二次曲线最小点。改变 δ；用反例检验“平滑一定优于当前残差”是否成立。",
+  "code": "import numpy as np\nt, delta = 0.75, 0.25\nprevious, current = np.array([1.,0.]), np.array([1.,4.])\ndef estimate(r0,r1): return (t*r0+delta*r1)/(t+delta)\ndef phi(u,r0,r1): return t*np.sum((u-r0)**2)+delta*np.sum((u-r1)**2)\ndef gradient(u,r0,r1): return 2*((t+delta)*u-t*r0-delta*r1)\nu=estimate(previous,current)\nassert np.allclose(u,[1.,1.])\nassert np.allclose(gradient(u,previous,current),0)\nassert np.all(np.linalg.eigvalsh(2*(t+delta)*np.eye(2))>0)\nassert np.isclose(phi(u,previous,current),3.)\nfor y in np.linspace(-4,4,81):\n    assert phi(np.array([1.,y]),previous,current)>=phi(u,previous,current)-1e-12\na=t/(t+delta)\nfor r0,r1 in [(previous,current),(current,previous)]:\n    v=estimate(r0,r1)\n    bound=a*np.sum(r0*r0)+(1-a)*np.sum(r1*r1)\n    assert np.dot(v,v)<=bound+1e-12\n    print('u=',v,'current_energy=',r1@r1,'smoothed_energy=',v@v,'weighted_bound=',bound)\n# 时变权重导数的独立反例；这是教学推导，不是论文实验。\nd, time = 0.1, 0.2\ndef R(s):\n    if s<=0.1: return s\n    if s<=0.2: return s+0.2/np.pi*(np.cos(np.pi*(s-0.1)/0.1)-1)\n    return s-0.4/np.pi\ndef Rprime(s):\n    return 1-2*np.sin(np.pi*(s-0.1)/0.1) if 0.1<s<0.2 else 1\nR_previous, R_current = R(time-d), R(time)\nderivative=1+d/(time+d)**2*(R_previous-R_current)\nassert derivative>1\nassert max(abs(Rprime(s)) for s in np.linspace(0,0.4,1001))<=1+1e-12\ndef smoothed(s): return (s*R(s-d)+d*R(s))/(s+d)\nh=1e-6\nassert abs((smoothed(time+h)-smoothed(time-h))/(2*h)-derivative)<1e-4\nprint('time-varying-weight derivative counterexample:',derivative)\nprint('No diffusion model trained or image-editing benchmark reproduced.')\n",
+  "codeNotes": "代码核对离散二次目标的梯度、Hessian、最小点与 Jensen 界。它验证式(4.5)的代数机制，不代表复现图像编辑效果。",
+  "pitfalls": [
+    "将局部二次代理的唯一解称为完整动态 OT 的精确解。",
+    "把两个时刻误写成等权平均；实际权重为 t/(t+δ)、δ/(t+δ)。",
+    "把当前能量降低、时间导数收缩、一步精确到达当成无需条件的同一结论。",
+    "把作者命名的可选 prox 增强，直接解释为严格近端算子。"
+  ],
+  "quiz": {
+    "question": "权重为 0.75、0.25，R₋=(1,0)、R₊=(1,4)。控制方向是多少？",
+    "options": [
+      "(1,1)",
+      "(1,2)",
+      "(1,4)",
+      "先把两个范数平均，再任选方向"
+    ],
+    "answer": 0,
+    "explanation": "逐分量加权：横向为 0.75+0.25=1，纵向为 0+0.25×4=1。"
+  },
+  "exercise": {
+    "question": "推导加权能量与平滑向量能量之差，并解释其非负性。",
+    "answer": "展开平方可得 a‖R₋‖²+(1−a)‖R₊‖²−‖aR₋+(1−a)R₊‖²=a(1−a)‖R₋−R₊‖²≥0。本例差为 0.75×0.25×16=3。它比较两个输入的加权能量与平均后的能量，不能删去任一输入项。"
+  },
+  "references": [
+    {
+      "title": "CVF 正式论文及补充材料入口",
+      "url": "https://openaccess.thecvf.com/content/CVPR2026/html/Lu_ChordEdit_One-Step_Low-Energy_Transport_for_Image_Editing_CVPR_2026_paper.html"
+    },
+    {
+      "title": "作者项目页",
+      "url": "https://chordedit.github.io/"
+    },
+    {
+      "title": "官方 CVPR 奖项记录",
+      "url": "https://cvpr.thecvf.com/Conferences/2026/News/Best_Papers"
+    },
+    {
+      "title": "广工校方报道",
+      "url": "https://math.gdut.edu.cn/info/1040/4335.htm"
+    }
+  ]
+}
