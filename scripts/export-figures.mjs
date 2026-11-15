@@ -19,5 +19,7 @@ for(const name of fs.readdirSync(path.join(root,'content')).filter(n=>n.endsWith
     manifest[lesson.id][key]={filename,caption};
   }
 }
+const referenced=new Set(Object.values(manifest).flatMap(figs=>Object.values(figs).map(f=>f.filename)));
+for(const name of fs.readdirSync(out))if(name.endsWith('.svg')&&!referenced.has(name))fs.unlinkSync(path.join(out,name));
 fs.writeFileSync(path.join(out,'manifest.json'),JSON.stringify(manifest,null,2));
 console.log(`Exported ${Object.values(manifest).reduce((n,figs)=>n+Object.keys(figs).length,0)} original SVG figures.`);

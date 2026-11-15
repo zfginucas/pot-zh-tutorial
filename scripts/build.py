@@ -56,6 +56,10 @@ def build():
     subprocess.run(['node', str(ROOT/'scripts/export-figures.mjs')], cwd=ROOT, check=True)
     FIGURES=json.loads((ROOT/'assets/generated-figures/manifest.json').read_text(encoding='utf-8'))
     DIST.mkdir(exist_ok=True)
+    expected_figures={item['filename'] for figures in FIGURES.values() for item in figures.values()}
+    for figure_dir in [DIST/'assets/generated-figures', DIST/'downloads/figures']:
+        for old in figure_dir.glob('*.svg'):
+            if old.name not in expected_figures:old.unlink()
     shutil.copy2(ROOT/'index.html',DIST/'index.html')
     shutil.copytree(ROOT/'assets',DIST/'assets',dirs_exist_ok=True)
     shutil.copytree(ROOT/'node_modules/katex/dist',DIST/'vendor/katex',dirs_exist_ok=True)
